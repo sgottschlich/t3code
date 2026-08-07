@@ -1,6 +1,16 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { Bot, ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  Bot,
+  ClipboardList,
+  FileDiff,
+  Files,
+  GitPullRequest,
+  Globe2,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -45,9 +55,11 @@ interface RightPanelTabsProps {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddAgents: () => void;
+  onAddChangeRequest: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  changeRequestAvailable: boolean;
   children: ReactNode;
 }
 
@@ -55,6 +67,7 @@ const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the T3 Code desktop app.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for server threads in Git repositories.",
+  changeRequest: "No merge or pull request was found for the current branch.",
 } as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
@@ -93,9 +106,11 @@ function RightPanelEmptyState(props: {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddAgents: () => void;
+  onAddChangeRequest: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  changeRequestAvailable: boolean;
 }) {
   const actions = [
     {
@@ -137,6 +152,14 @@ function RightPanelEmptyState(props: {
       available: true,
       disabledReason: null,
       onClick: props.onAddAgents,
+    },
+    {
+      label: "Change Request",
+      description: "Pipeline status, review threads, and merge.",
+      icon: GitPullRequest,
+      available: props.changeRequestAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.changeRequest,
+      onClick: props.onAddChangeRequest,
     },
   ] as const;
 
@@ -217,6 +240,8 @@ function surfaceTitle(
       return "Plan";
     case "agents":
       return "Agents";
+    case "changeRequest":
+      return "Change Request";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -280,6 +305,8 @@ function SurfaceIcon({
       return <ClipboardList className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "changeRequest":
+      return <GitPullRequest className="size-3 shrink-0" />;
   }
 }
 
@@ -484,6 +511,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <Bot />
                     Agents
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.changeRequestAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.changeRequest}
+                    onClick={props.onAddChangeRequest}
+                  >
+                    <GitPullRequest />
+                    Change Request
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -499,9 +534,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
             onAddAgents={props.onAddAgents}
+            onAddChangeRequest={props.onAddChangeRequest}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
+            changeRequestAvailable={props.changeRequestAvailable}
           />
         ) : (
           props.children

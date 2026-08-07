@@ -1,7 +1,14 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { SourceControlProviderError, type ChangeRequest } from "@t3tools/contracts";
+import {
+  SourceControlProviderError,
+  type ChangeRequest,
+  type ChangeRequestMergeResult,
+  type ChangeRequestPipeline,
+  type ChangeRequestPipelineStatus,
+  type ChangeRequestThread,
+} from "@t3tools/contracts";
 
 import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
@@ -36,6 +43,57 @@ function toChangeRequest(summary: GitLabCli.GitLabMergeRequestSummary): ChangeRe
     ...(summary.headRepositoryOwnerLogin !== undefined
       ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
       : {}),
+    ...(summary.isDraft !== undefined ? { isDraft: summary.isDraft } : {}),
+    ...(summary.mergeable !== undefined ? { mergeable: summary.mergeable } : {}),
+  };
+}
+
+const PIPELINE_STATUSES = new Set<ChangeRequestPipelineStatus>([
+  "none",
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "canceled",
+  "skipped",
+  "manual",
+]);
+
+function toPipelineStatus(status: string): ChangeRequestPipelineStatus {
+  return PIPELINE_STATUSES.has(status as ChangeRequestPipelineStatus)
+    ? (status as ChangeRequestPipelineStatus)
+    : "pending";
+}
+
+function toChangeRequestPipeline(pipeline: GitLabCli.GitLabPipeline): ChangeRequestPipeline {
+  return {
+    status: toPipelineStatus(pipeline.status),
+    ...(pipeline.url ? { url: pipeline.url } : {}),
+    jobs: pipeline.jobs.map((job) => ({
+      name: job.name,
+      status: toPipelineStatus(job.status),
+      ...(job.stage ? { stage: job.stage } : {}),
+      ...(job.url ? { url: job.url } : {}),
+    })),
+  };
+}
+
+function toChangeRequestThread(thread: GitLabCli.GitLabThread): ChangeRequestThread {
+  return {
+    id: thread.id,
+    author: thread.author,
+    bodyExcerpt: thread.bodyExcerpt,
+    resolved: thread.resolved,
+    ...(thread.url ? { url: thread.url } : {}),
+    ...(thread.filePath !== undefined ? { filePath: thread.filePath } : {}),
+    ...(thread.line !== undefined ? { line: thread.line } : {}),
+  };
+}
+
+function toChangeRequestMergeResult(result: GitLabCli.GitLabMergeResult): ChangeRequestMergeResult {
+  return {
+    state: result.state,
+    ...(result.sha !== undefined ? { sha: result.sha } : {}),
   };
 }
 
@@ -235,6 +293,60 @@ export const make = Effect.gen(function* () {
             new SourceControlProviderError({
               provider: "gitlab",
               operation: "checkoutChangeRequest",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    getChangeRequestPipeline: (input) =>
+      gitlab.getChangeRequestPipeline(input).pipe(
+        Effect.map(toChangeRequestPipeline),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "getChangeRequestPipeline",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    listChangeRequestThreads: (input) =>
+      gitlab.listChangeRequestThreads(input).pipe(
+        Effect.map((threads) => threads.map(toChangeRequestThread)),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "listChangeRequestThreads",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      gitlab.mergeChangeRequest(input).pipe(
+        Effect.map(toChangeRequestMergeResult),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "gitlab",
+              operation: "mergeChangeRequest",
               command: error.command,
               cwd: input.cwd,
               reference: SourceControlProvider.transportSafeSourceControlErrorValue(

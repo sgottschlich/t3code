@@ -94,6 +94,8 @@ describe("GitHubCli.layer", () => {
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
+        mergeable: "unknown",
+        mergeCommitSha: null,
       });
       expect(mockRun).toHaveBeenCalledWith({
         operation: "GitHubCli.execute",
@@ -103,7 +105,7 @@ describe("GitHubCli.layer", () => {
           "view",
           "#42",
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner,isDraft,mergeable,mergeCommit",
         ],
         cwd: "/repo",
         timeoutMs: 30_000,
@@ -153,6 +155,8 @@ describe("GitHubCli.layer", () => {
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
+        mergeable: "unknown",
+        mergeCommitSha: null,
       });
     }).pipe(Effect.provide(layer)),
   );
@@ -203,6 +207,8 @@ describe("GitHubCli.layer", () => {
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
+          mergeable: "unknown",
+          mergeCommitSha: null,
         },
       ]);
     }).pipe(Effect.provide(layer)),
@@ -258,6 +264,8 @@ describe("GitHubCli.layer", () => {
           isCrossRepository: false,
           headRepositoryNameWithOwner: "pingdotgg/codething-mvp",
           headRepositoryOwnerLogin: "pingdotgg",
+          mergeable: "unknown",
+          mergeCommitSha: null,
         },
       ]);
     }).pipe(Effect.provide(layer)),

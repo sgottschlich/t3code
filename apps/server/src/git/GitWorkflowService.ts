@@ -3,8 +3,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
+  type ChangeRequestMergeResult,
+  type ChangeRequestPipeline,
   GitManagerError,
   GitCommandError,
+  type GitListChangeRequestThreadsResult,
+  type GitMergeChangeRequestInput,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -59,6 +63,15 @@ export class GitWorkflowService extends Context.Service<
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+    readonly getChangeRequestPipeline: (
+      input: GitPullRequestRefInput,
+    ) => Effect.Effect<ChangeRequestPipeline, GitManagerServiceError>;
+    readonly listChangeRequestThreads: (
+      input: GitPullRequestRefInput,
+    ) => Effect.Effect<GitListChangeRequestThreadsResult, GitManagerServiceError>;
+    readonly mergeChangeRequest: (
+      input: GitMergeChangeRequestInput,
+    ) => Effect.Effect<ChangeRequestMergeResult, GitManagerServiceError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
@@ -288,6 +301,18 @@ export const make = Effect.gen(function* () {
     preparePullRequestThread: routeGitManager(
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
+    ),
+    getChangeRequestPipeline: routeGitManager(
+      "GitWorkflowService.getChangeRequestPipeline",
+      gitManager.getChangeRequestPipeline,
+    ),
+    listChangeRequestThreads: routeGitManager(
+      "GitWorkflowService.listChangeRequestThreads",
+      gitManager.listChangeRequestThreads,
+    ),
+    mergeChangeRequest: routeGitManager(
+      "GitWorkflowService.mergeChangeRequest",
+      gitManager.mergeChangeRequest,
     ),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(

@@ -150,6 +150,7 @@ import {
 } from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
+import { ChangeRequestPanel } from "./changeRequest/ChangeRequestPanel";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
@@ -3152,6 +3153,12 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
   }, [activeThreadRef]);
+  const changeRequestAvailable =
+    isServerThread && isGitRepo && gitStatusQuery.data?.pr != null;
+  const addChangeRequestSurface = useCallback(() => {
+    if (!activeThreadRef || !changeRequestAvailable) return;
+    useRightPanelStore.getState().open(activeThreadRef, "changeRequest");
+  }, [activeThreadRef, changeRequestAvailable]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -5882,6 +5889,15 @@ function ChatViewContent(props: ChatViewProps) {
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
       />
+    ) : activeRightPanelSurface?.kind === "changeRequest" ? (
+      <ChangeRequestPanel
+        environmentId={activeThreadRef?.environmentId ?? null}
+        cwd={gitCwd ?? null}
+        reference={
+          gitStatusQuery.data?.pr ? String(gitStatusQuery.data.pr.number) : null
+        }
+        changeRequest={gitStatusQuery.data?.pr ?? null}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -6316,9 +6332,11 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           onAddAgents={addAgentsSurface}
+          onAddChangeRequest={addChangeRequestSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
+          changeRequestAvailable={changeRequestAvailable}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -6344,9 +6362,11 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             onAddAgents={addAgentsSurface}
+            onAddChangeRequest={addChangeRequestSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
+            changeRequestAvailable={changeRequestAvailable}
           >
             {rightPanelContent}
           </RightPanelTabs>

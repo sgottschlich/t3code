@@ -5,7 +5,11 @@ import * as Result from "effect/Result";
 import {
   SourceControlProviderError,
   type ChangeRequest,
+  type ChangeRequestMergeResult,
+  type ChangeRequestPipeline,
+  type ChangeRequestPipelineStatus,
   type ChangeRequestState,
+  type ChangeRequestThread,
 } from "@t3tools/contracts";
 
 import * as GitHubCli from "./GitHubCli.ts";
@@ -39,6 +43,56 @@ function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeReq
     ...(summary.headRepositoryOwnerLogin !== undefined
       ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
       : {}),
+    ...(summary.isDraft !== undefined ? { isDraft: summary.isDraft } : {}),
+    ...(summary.mergeable !== undefined ? { mergeable: summary.mergeable } : {}),
+  };
+}
+
+const PIPELINE_STATUSES = new Set<ChangeRequestPipelineStatus>([
+  "none",
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "canceled",
+  "skipped",
+  "manual",
+]);
+
+function toPipelineStatus(status: string): ChangeRequestPipelineStatus {
+  return PIPELINE_STATUSES.has(status as ChangeRequestPipelineStatus)
+    ? (status as ChangeRequestPipelineStatus)
+    : "pending";
+}
+
+function toChangeRequestPipeline(pipeline: GitHubCli.GitHubPipeline): ChangeRequestPipeline {
+  return {
+    status: toPipelineStatus(pipeline.status),
+    jobs: pipeline.jobs.map((job) => ({
+      name: job.name,
+      status: toPipelineStatus(job.status),
+      ...(job.stage ? { stage: job.stage } : {}),
+      ...(job.url ? { url: job.url } : {}),
+    })),
+  };
+}
+
+function toChangeRequestThread(thread: GitHubCli.GitHubThread): ChangeRequestThread {
+  return {
+    id: thread.id,
+    author: thread.author,
+    bodyExcerpt: thread.bodyExcerpt,
+    resolved: thread.resolved,
+    ...(thread.url ? { url: thread.url } : {}),
+    ...(thread.filePath !== undefined ? { filePath: thread.filePath } : {}),
+    ...(thread.line !== undefined ? { line: thread.line } : {}),
+  };
+}
+
+function toChangeRequestMergeResult(result: GitHubCli.GitHubMergeResult): ChangeRequestMergeResult {
+  return {
+    state: result.state,
+    ...(result.sha !== undefined ? { sha: result.sha } : {}),
   };
 }
 
@@ -139,7 +193,7 @@ export const make = Effect.gen(function* () {
             "--limit",
             String(input.limit ?? 20),
             "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner,isDraft,mergeable,mergeCommit",
           ],
         })
         .pipe(
@@ -285,6 +339,60 @@ export const make = Effect.gen(function* () {
             new SourceControlProviderError({
               provider: "github",
               operation: "checkoutChangeRequest",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    getChangeRequestPipeline: (input) =>
+      github.getChangeRequestPipeline(input).pipe(
+        Effect.map(toChangeRequestPipeline),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "getChangeRequestPipeline",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    listChangeRequestThreads: (input) =>
+      github.listChangeRequestThreads(input).pipe(
+        Effect.map((threads) => threads.map(toChangeRequestThread)),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "listChangeRequestThreads",
+              command: error.command,
+              cwd: input.cwd,
+              reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                input.reference,
+              ),
+              detail: error.detail,
+              cause: error,
+            }),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      github.mergeChangeRequest(input).pipe(
+        Effect.map(toChangeRequestMergeResult),
+        Effect.mapError(
+          (error) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "mergeChangeRequest",
               command: error.command,
               cwd: input.cwd,
               reference: SourceControlProvider.transportSafeSourceControlErrorValue(

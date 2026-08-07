@@ -13,9 +13,13 @@ import * as Order from "effect/Order";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import {
+  type ChangeRequestMergeResult,
+  type ChangeRequestPipeline,
   GitActionProgressEvent,
   GitActionProgressPhase,
   GitCommandError,
+  type GitListChangeRequestThreadsResult,
+  type GitMergeChangeRequestInput,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -96,6 +100,15 @@ export class GitManager extends Context.Service<
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+    readonly getChangeRequestPipeline: (
+      input: GitPullRequestRefInput,
+    ) => Effect.Effect<ChangeRequestPipeline, GitManagerServiceError>;
+    readonly listChangeRequestThreads: (
+      input: GitPullRequestRefInput,
+    ) => Effect.Effect<GitListChangeRequestThreadsResult, GitManagerServiceError>;
+    readonly mergeChangeRequest: (
+      input: GitMergeChangeRequestInput,
+    ) => Effect.Effect<ChangeRequestMergeResult, GitManagerServiceError>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -1718,6 +1731,38 @@ export const make = Effect.gen(function* () {
     return { pullRequest };
   });
 
+  const getChangeRequestPipeline: GitManager["Service"]["getChangeRequestPipeline"] = Effect.fn(
+    "getChangeRequestPipeline",
+  )(function* (input) {
+    return yield* (yield* sourceControlProvider(input.cwd)).getChangeRequestPipeline({
+      cwd: input.cwd,
+      reference: normalizePullRequestReference(input.reference),
+    });
+  });
+
+  const listChangeRequestThreads: GitManager["Service"]["listChangeRequestThreads"] = Effect.fn(
+    "listChangeRequestThreads",
+  )(function* (input) {
+    const threads = yield* (yield* sourceControlProvider(input.cwd)).listChangeRequestThreads({
+      cwd: input.cwd,
+      reference: normalizePullRequestReference(input.reference),
+    });
+    return { threads };
+  });
+
+  const mergeChangeRequest: GitManager["Service"]["mergeChangeRequest"] = Effect.fn(
+    "mergeChangeRequest",
+  )(function* (input) {
+    return yield* (yield* sourceControlProvider(input.cwd)).mergeChangeRequest({
+      cwd: input.cwd,
+      reference: normalizePullRequestReference(input.reference),
+      ...(input.squash !== undefined ? { squash: input.squash } : {}),
+      ...(input.deleteSourceBranch !== undefined
+        ? { deleteSourceBranch: input.deleteSourceBranch }
+        : {}),
+    });
+  });
+
   const preparePullRequestThread: GitManager["Service"]["preparePullRequestThread"] = Effect.fn(
     "preparePullRequestThread",
   )(function* (input) {
@@ -2142,6 +2187,9 @@ export const make = Effect.gen(function* () {
     invalidateStatus,
     resolvePullRequest,
     preparePullRequestThread,
+    getChangeRequestPipeline,
+    listChangeRequestThreads,
+    mergeChangeRequest,
     runStackedAction,
   });
 });

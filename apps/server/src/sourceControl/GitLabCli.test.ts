@@ -75,6 +75,9 @@ layer("GitLabCli.layer", (it) => {
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/t3code",
         headRepositoryOwnerLogin: "octocat",
+        isDraft: false,
+        mergeable: "unknown",
+        mergeCommitSha: null,
       });
       expect(mockedRun).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -130,6 +133,9 @@ layer("GitLabCli.layer", (it) => {
           baseRefName: "main",
           headRefName: "feature/mr-list",
           state: "merged",
+          isDraft: false,
+          mergeable: "unknown",
+          mergeCommitSha: null,
         },
       ]);
       expect(mockedRun).toHaveBeenCalledWith(

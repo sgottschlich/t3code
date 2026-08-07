@@ -21,6 +21,13 @@ export type SourceControlProviderInfo = typeof SourceControlProviderInfo.Type;
 export const ChangeRequestState = Schema.Literals(["open", "closed", "merged"]);
 export type ChangeRequestState = typeof ChangeRequestState.Type;
 
+export const ChangeRequestMergeableState = Schema.Literals([
+  "mergeable",
+  "conflicting",
+  "unknown",
+]);
+export type ChangeRequestMergeableState = typeof ChangeRequestMergeableState.Type;
+
 export const ChangeRequest = Schema.Struct({
   provider: SourceControlProviderKind,
   number: PositiveInt,
@@ -33,8 +40,60 @@ export const ChangeRequest = Schema.Struct({
   isCrossRepository: Schema.optional(Schema.Boolean),
   headRepositoryNameWithOwner: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   headRepositoryOwnerLogin: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  isDraft: Schema.optional(Schema.Boolean),
+  mergeable: Schema.optional(ChangeRequestMergeableState),
 });
 export type ChangeRequest = typeof ChangeRequest.Type;
+
+/**
+ * Cross-provider status vocabulary for pipeline/check-run state. GitLab's
+ * native statuses map through mostly unchanged; GitHub's `gh pr checks
+ * --json` bucket values (pass/fail/pending/skipping/cancel) are normalized
+ * onto this set by each provider's own decoder.
+ */
+export const ChangeRequestPipelineStatus = Schema.Literals([
+  "none",
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "canceled",
+  "skipped",
+  "manual",
+]);
+export type ChangeRequestPipelineStatus = typeof ChangeRequestPipelineStatus.Type;
+
+export const ChangeRequestPipelineJob = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  stage: Schema.optional(TrimmedNonEmptyString),
+  status: ChangeRequestPipelineStatus,
+  url: Schema.optional(TrimmedNonEmptyString),
+});
+export type ChangeRequestPipelineJob = typeof ChangeRequestPipelineJob.Type;
+
+export const ChangeRequestPipeline = Schema.Struct({
+  status: ChangeRequestPipelineStatus,
+  url: Schema.optional(TrimmedNonEmptyString),
+  jobs: Schema.Array(ChangeRequestPipelineJob),
+});
+export type ChangeRequestPipeline = typeof ChangeRequestPipeline.Type;
+
+export const ChangeRequestThread = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  author: TrimmedNonEmptyString,
+  bodyExcerpt: Schema.String,
+  resolved: Schema.Boolean,
+  url: Schema.optional(TrimmedNonEmptyString),
+  filePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  line: Schema.optional(Schema.NullOr(PositiveInt)),
+});
+export type ChangeRequestThread = typeof ChangeRequestThread.Type;
+
+export const ChangeRequestMergeResult = Schema.Struct({
+  state: ChangeRequestState,
+  sha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+export type ChangeRequestMergeResult = typeof ChangeRequestMergeResult.Type;
 
 export const SourceControlRepositoryCloneUrls = Schema.Struct({
   nameWithOwner: TrimmedNonEmptyString,

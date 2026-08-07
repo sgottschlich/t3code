@@ -120,6 +120,30 @@ function unsupportedProvider(
         reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
         detail: `No ${kind} source control provider is registered.`,
       }),
+    getChangeRequestPipeline: (input) =>
+      new SourceControlProviderError({
+        provider: kind,
+        operation: "getChangeRequestPipeline",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: `No ${kind} source control provider is registered.`,
+      }),
+    listChangeRequestThreads: (input) =>
+      new SourceControlProviderError({
+        provider: kind,
+        operation: "listChangeRequestThreads",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: `No ${kind} source control provider is registered.`,
+      }),
+    mergeChangeRequest: (input) =>
+      new SourceControlProviderError({
+        provider: kind,
+        operation: "mergeChangeRequest",
+        cwd: input.cwd,
+        reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+        detail: `No ${kind} source control provider is registered.`,
+      }),
   });
 }
 
@@ -187,6 +211,21 @@ function bindProviderContext(
       }),
     checkoutChangeRequest: (input) =>
       provider.checkoutChangeRequest({
+        ...input,
+        context: input.context ?? context,
+      }),
+    getChangeRequestPipeline: (input) =>
+      provider.getChangeRequestPipeline({
+        ...input,
+        context: input.context ?? context,
+      }),
+    listChangeRequestThreads: (input) =>
+      provider.listChangeRequestThreads({
+        ...input,
+        context: input.context ?? context,
+      }),
+    mergeChangeRequest: (input) =>
+      provider.mergeChangeRequest({
         ...input,
         context: input.context ?? context,
       }),

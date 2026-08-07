@@ -182,6 +182,36 @@ export const make = Effect.gen(function* () {
               }),
           ),
         ),
+    getChangeRequestPipeline: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "bitbucket",
+          operation: "getChangeRequestPipeline",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Pipeline status is not supported for Bitbucket yet.",
+        }),
+      ),
+    listChangeRequestThreads: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "bitbucket",
+          operation: "listChangeRequestThreads",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Review threads are not supported for Bitbucket yet.",
+        }),
+      ),
+    mergeChangeRequest: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "bitbucket",
+          operation: "mergeChangeRequest",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Merging is not supported for Bitbucket yet.",
+        }),
+      ),
   });
 });
 

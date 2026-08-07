@@ -34,6 +34,8 @@ import {
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
+  GitListChangeRequestThreadsResult,
+  GitMergeChangeRequestInput,
   VcsPullInput,
   GitPullRequestRefInput,
   VcsPullResult,
@@ -154,6 +156,8 @@ import {
 } from "./resourceTelemetry.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
+  ChangeRequestMergeResult,
+  ChangeRequestPipeline,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SourceControlDiscoveryResult,
@@ -197,6 +201,9 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetChangeRequestPipeline: "git.getChangeRequestPipeline",
+  gitListChangeRequestThreads: "git.listChangeRequestThreads",
+  gitMergeChangeRequest: "git.mergeChangeRequest",
 
   // Review methods
   reviewGetDiffPreview: "review.getDiffPreview",
@@ -256,6 +263,7 @@ export const WS_METHODS = {
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
+  subscribeChangeRequestStatus: "subscribeChangeRequestStatus",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
@@ -494,6 +502,16 @@ export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   stream: true,
 });
 
+export const WsSubscribeChangeRequestStatusRpc = Rpc.make(
+  WS_METHODS.subscribeChangeRequestStatus,
+  {
+    payload: GitPullRequestRefInput,
+    success: ChangeRequestPipeline,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+    stream: true,
+  },
+);
+
 export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
   payload: VcsPullInput,
   success: VcsPullResult,
@@ -522,6 +540,30 @@ export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequ
 export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePullRequestThread, {
   payload: GitPreparePullRequestThreadInput,
   success: GitPreparePullRequestThreadResult,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsGitGetChangeRequestPipelineRpc = Rpc.make(
+  WS_METHODS.gitGetChangeRequestPipeline,
+  {
+    payload: GitPullRequestRefInput,
+    success: ChangeRequestPipeline,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsGitListChangeRequestThreadsRpc = Rpc.make(
+  WS_METHODS.gitListChangeRequestThreads,
+  {
+    payload: GitPullRequestRefInput,
+    success: GitListChangeRequestThreadsResult,
+    error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  },
+);
+
+export const WsGitMergeChangeRequestRpc = Rpc.make(WS_METHODS.gitMergeChangeRequest, {
+  payload: GitMergeChangeRequestInput,
+  success: ChangeRequestMergeResult,
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
@@ -837,11 +879,15 @@ export const WsRpcGroup = RpcGroup.make(
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,
   WsSubscribeVcsStatusRpc,
+  WsSubscribeChangeRequestStatusRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitGetChangeRequestPipelineRpc,
+  WsGitListChangeRequestThreadsRpc,
+  WsGitMergeChangeRequestRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

@@ -17,6 +17,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
   decodeGitLabMergeRequestJson,
   decodeGitLabMergeRequestListJson,
+  trimOptionalString,
 } from "./gitLabMergeRequests.ts";
 import type * as SourceControlProvider from "./SourceControlProvider.ts";
 
@@ -210,6 +211,40 @@ export class GitLabNamespaceDecodeError extends Schema.TaggedErrorClass<GitLabNa
   }
 }
 
+export class GitLabPipelineDecodeError extends Schema.TaggedErrorClass<GitLabPipelineDecodeError>()(
+  "GitLabPipelineDecodeError",
+  {
+    ...gitLabCliDecodeErrorContext,
+    operation: Schema.Literal("getChangeRequestPipeline"),
+    reference: Schema.String,
+  },
+) {
+  get detail(): string {
+    return "GitLab CLI returned invalid pipeline or job JSON.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class GitLabDiscussionDecodeError extends Schema.TaggedErrorClass<GitLabDiscussionDecodeError>()(
+  "GitLabDiscussionDecodeError",
+  {
+    ...gitLabCliDecodeErrorContext,
+    operation: Schema.Literal("listChangeRequestThreads"),
+    reference: Schema.String,
+  },
+) {
+  get detail(): string {
+    return "GitLab CLI returned invalid discussion JSON.";
+  }
+
+  override get message(): string {
+    return `GitLab CLI failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 export const GitLabCliError = Schema.Union([
   GitLabCliUnavailableError,
   GitLabCliAuthenticationError,
@@ -219,9 +254,39 @@ export const GitLabCliError = Schema.Union([
   GitLabMergeRequestDecodeError,
   GitLabRepositoryDecodeError,
   GitLabNamespaceDecodeError,
+  GitLabPipelineDecodeError,
+  GitLabDiscussionDecodeError,
 ]);
 export type GitLabCliError = typeof GitLabCliError.Type;
 export const isGitLabCliError = Schema.is(GitLabCliError);
+
+export interface GitLabPipelineJob {
+  readonly name: string;
+  readonly stage?: string;
+  readonly status: string;
+  readonly url?: string;
+}
+
+export interface GitLabPipeline {
+  readonly status: string;
+  readonly url?: string;
+  readonly jobs: ReadonlyArray<GitLabPipelineJob>;
+}
+
+export interface GitLabThread {
+  readonly id: string;
+  readonly author: string;
+  readonly bodyExcerpt: string;
+  readonly resolved: boolean;
+  readonly url?: string;
+  readonly filePath?: string | null;
+  readonly line?: number | null;
+}
+
+export interface GitLabMergeResult {
+  readonly state: "open" | "closed" | "merged";
+  readonly sha?: string | null;
+}
 
 export interface GitLabMergeRequestSummary {
   readonly number: number;
@@ -234,6 +299,9 @@ export interface GitLabMergeRequestSummary {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+  readonly isDraft?: boolean;
+  readonly mergeable?: "mergeable" | "conflicting" | "unknown";
+  readonly mergeCommitSha?: string | null;
 }
 
 export interface GitLabRepositoryCloneUrls {
@@ -294,6 +362,23 @@ export class GitLabCli extends Context.Service<
       readonly reference: string;
       readonly force?: boolean;
     }) => Effect.Effect<void, GitLabCliError>;
+
+    readonly getChangeRequestPipeline: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<GitLabPipeline, GitLabCliError>;
+
+    readonly listChangeRequestThreads: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitLabThread>, GitLabCliError>;
+
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly squash?: boolean;
+      readonly deleteSourceBranch?: boolean;
+    }) => Effect.Effect<GitLabMergeResult, GitLabCliError>;
   }
 >()("t3/sourceControl/GitLabCli") {}
 
@@ -320,6 +405,98 @@ const decodeGitLabDefaultBranch = Schema.decodeEffect(
 );
 const decodeGitLabNamespace = Schema.decodeEffect(Schema.fromJsonString(RawGitLabNamespaceSchema));
 
+const RawGitLabPipelineSummarySchema = Schema.Struct({
+  id: Schema.Number,
+  status: Schema.optional(Schema.NullOr(Schema.String)),
+  web_url: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const RawGitLabJobSchema = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  stage: Schema.optional(Schema.NullOr(Schema.String)),
+  status: Schema.optional(Schema.NullOr(Schema.String)),
+  web_url: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const RawGitLabNoteAuthorSchema = Schema.Struct({
+  username: Schema.optional(Schema.NullOr(Schema.String)),
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+const RawGitLabNotePositionSchema = Schema.Struct({
+  new_path: Schema.optional(Schema.NullOr(Schema.String)),
+  old_path: Schema.optional(Schema.NullOr(Schema.String)),
+  new_line: Schema.optional(Schema.NullOr(Schema.Number)),
+  old_line: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+
+const RawGitLabNoteSchema = Schema.Struct({
+  id: Schema.Number,
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  author: Schema.optional(Schema.NullOr(RawGitLabNoteAuthorSchema)),
+  resolvable: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  resolved: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  system: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  position: Schema.optional(Schema.NullOr(RawGitLabNotePositionSchema)),
+});
+
+const RawGitLabDiscussionSchema = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  individual_note: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  notes: Schema.optional(Schema.Array(RawGitLabNoteSchema)),
+});
+
+const decodeGitLabPipelineSummaryList = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(RawGitLabPipelineSummarySchema)),
+);
+const decodeGitLabJobList = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(RawGitLabJobSchema)));
+const decodeGitLabDiscussionList = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(RawGitLabDiscussionSchema)),
+);
+
+const MAX_THREAD_BODY_EXCERPT_LENGTH = 200;
+
+function truncateBody(body: string | null | undefined): string {
+  const trimmed = body?.trim() ?? "";
+  return trimmed.length > MAX_THREAD_BODY_EXCERPT_LENGTH
+    ? `${trimmed.slice(0, MAX_THREAD_BODY_EXCERPT_LENGTH)}…`
+    : trimmed;
+}
+
+function normalizeGitLabThread(
+  discussion: Schema.Schema.Type<typeof RawGitLabDiscussionSchema>,
+  mrUrl: string,
+): GitLabThread | null {
+  const notes = discussion.notes ?? [];
+  const resolvableNotes = notes.filter((note) => note.resolvable === true);
+  if (resolvableNotes.length === 0) {
+    // Plain/system comments aren't review threads — nothing to resolve.
+    return null;
+  }
+
+  const rootNote = notes.find((note) => note.system !== true) ?? notes[0];
+  if (!rootNote) {
+    return null;
+  }
+
+  const resolved = resolvableNotes.every((note) => note.resolved === true);
+  const filePath = trimOptionalString(rootNote.position?.new_path ?? rootNote.position?.old_path);
+  const line = rootNote.position?.new_line ?? rootNote.position?.old_line ?? null;
+
+  return {
+    id: discussion.id,
+    author:
+      trimOptionalString(rootNote.author?.username) ??
+      trimOptionalString(rootNote.author?.name) ??
+      "unknown",
+    bodyExcerpt: truncateBody(rootNote.body),
+    resolved,
+    url: `${mrUrl}#note_${rootNote.id}`,
+    ...(filePath !== null ? { filePath } : {}),
+    ...(typeof line === "number" ? { line } : {}),
+  };
+}
+
 function normalizeRepositoryCloneUrls(
   raw: Schema.Schema.Type<typeof RawGitLabRepositoryCloneUrlsSchema>,
 ): GitLabRepositoryCloneUrls {
@@ -341,6 +518,27 @@ function stateArgs(state: "open" | "closed" | "merged" | "all"): ReadonlyArray<s
     case "all":
       return ["--all"];
   }
+}
+
+const KNOWN_PIPELINE_STATUSES = new Set([
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "canceled",
+  "skipped",
+  "manual",
+]);
+
+function normalizeGitLabPipelineStatus(status: string | null | undefined): string {
+  const normalized = status?.trim().toLowerCase() ?? "";
+  if (KNOWN_PIPELINE_STATUSES.has(normalized)) {
+    return normalized;
+  }
+  // created / waiting_for_resource / preparing / scheduled and anything
+  // unrecognized collapse onto "pending" — the caller normalizes further
+  // against the cross-provider ChangeRequestPipelineStatus vocabulary.
+  return "pending";
 }
 
 function normalizeHeadSelector(headSelector: string): string {
@@ -426,6 +624,33 @@ export const make = Effect.gen(function* () {
           reference: input.reference,
         },
         error,
+      ),
+    );
+
+  const resolveMergeRequestSummary = (input: { readonly cwd: string; readonly reference: string }) =>
+    executeMergeRequest({
+      cwd: input.cwd,
+      reference: input.reference,
+      args: ["mr", "view", input.reference, "--output", "json"],
+    }).pipe(
+      Effect.map((result) => result.stdout.trim()),
+      Effect.flatMap((raw) =>
+        Effect.sync(() => decodeGitLabMergeRequestJson(raw)).pipe(
+          Effect.flatMap((decoded) => {
+            if (!Result.isSuccess(decoded)) {
+              return Effect.fail(
+                new GitLabMergeRequestDecodeError({
+                  operation: "getMergeRequest",
+                  command: "glab",
+                  cwd: input.cwd,
+                  reference: input.reference,
+                  cause: decoded.failure,
+                }),
+              );
+            }
+            return Effect.succeed(decoded.success);
+          }),
+        ),
       ),
     );
 
@@ -630,6 +855,143 @@ export const make = Effect.gen(function* () {
         reference: input.reference,
         args: ["mr", "checkout", input.reference],
       }).pipe(Effect.asVoid),
+    getChangeRequestPipeline: (input) =>
+      resolveMergeRequestSummary(input).pipe(
+        Effect.flatMap((summary) =>
+          executeMergeRequest({
+            cwd: input.cwd,
+            reference: input.reference,
+            args: ["api", `projects/:fullpath/merge_requests/${summary.number}/pipelines`],
+          }),
+        ),
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed([])
+            : decodeGitLabPipelineSummaryList(raw).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new GitLabPipelineDecodeError({
+                      operation: "getChangeRequestPipeline",
+                      command: "glab",
+                      cwd: input.cwd,
+                      reference: input.reference,
+                      cause,
+                    }),
+                ),
+              ),
+        ),
+        Effect.flatMap((pipelines) => {
+          const latest = [...pipelines].sort((a, b) => b.id - a.id)[0];
+          if (!latest) {
+            return Effect.succeed<GitLabPipeline>({ status: "none", jobs: [] });
+          }
+
+          return execute({
+            cwd: input.cwd,
+            args: [
+              "api",
+              `projects/:fullpath/pipelines/${latest.id}/jobs`,
+              "--raw-field",
+              "per_page=100",
+            ],
+          }).pipe(
+            Effect.map((result) => result.stdout.trim()),
+            Effect.flatMap((raw) =>
+              raw.length === 0
+                ? Effect.succeed([])
+                : decodeGitLabJobList(raw).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new GitLabPipelineDecodeError({
+                          operation: "getChangeRequestPipeline",
+                          command: "glab",
+                          cwd: input.cwd,
+                          reference: input.reference,
+                          cause,
+                        }),
+                    ),
+                  ),
+            ),
+            Effect.map(
+              (jobs): GitLabPipeline => ({
+                status: normalizeGitLabPipelineStatus(latest.status),
+                ...(trimOptionalString(latest.web_url)
+                  ? { url: trimOptionalString(latest.web_url) as string }
+                  : {}),
+                jobs: jobs.map((job) => ({
+                  name: job.name,
+                  status: normalizeGitLabPipelineStatus(job.status),
+                  ...(trimOptionalString(job.stage) ? { stage: trimOptionalString(job.stage) as string } : {}),
+                  ...(trimOptionalString(job.web_url)
+                    ? { url: trimOptionalString(job.web_url) as string }
+                    : {}),
+                })),
+              }),
+            ),
+          );
+        }),
+      ),
+    listChangeRequestThreads: (input) =>
+      resolveMergeRequestSummary(input).pipe(
+        Effect.flatMap((summary) =>
+          executeMergeRequest({
+            cwd: input.cwd,
+            reference: input.reference,
+            args: [
+              "api",
+              `projects/:fullpath/merge_requests/${summary.number}/discussions`,
+              "--raw-field",
+              "per_page=100",
+            ],
+          }).pipe(
+            Effect.map((result) => result.stdout.trim()),
+            Effect.flatMap((raw) =>
+              raw.length === 0
+                ? Effect.succeed([])
+                : decodeGitLabDiscussionList(raw).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new GitLabDiscussionDecodeError({
+                          operation: "listChangeRequestThreads",
+                          command: "glab",
+                          cwd: input.cwd,
+                          reference: input.reference,
+                          cause,
+                        }),
+                    ),
+                  ),
+            ),
+            Effect.map((discussions) =>
+              discussions
+                .map((discussion) => normalizeGitLabThread(discussion, summary.url))
+                .filter((thread): thread is GitLabThread => thread !== null),
+            ),
+          ),
+        ),
+      ),
+    mergeChangeRequest: (input) =>
+      executeMergeRequest({
+        cwd: input.cwd,
+        reference: input.reference,
+        args: [
+          "mr",
+          "merge",
+          input.reference,
+          "--yes",
+          "--auto-merge=false",
+          ...(input.squash ? ["--squash"] : []),
+          ...(input.deleteSourceBranch ? ["--remove-source-branch"] : []),
+        ],
+      }).pipe(
+        Effect.flatMap(() => resolveMergeRequestSummary(input)),
+        Effect.map(
+          (summary): GitLabMergeResult => ({
+            state: summary.state,
+            sha: summary.mergeCommitSha ?? null,
+          }),
+        ),
+      ),
   });
 });
 

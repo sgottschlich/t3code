@@ -223,6 +223,36 @@ export const make = Effect.gen(function* () {
               }),
           ),
         ),
+    getChangeRequestPipeline: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "azure-devops",
+          operation: "getChangeRequestPipeline",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Pipeline status is not supported for Azure DevOps yet.",
+        }),
+      ),
+    listChangeRequestThreads: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "azure-devops",
+          operation: "listChangeRequestThreads",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Review threads are not supported for Azure DevOps yet.",
+        }),
+      ),
+    mergeChangeRequest: (input) =>
+      Effect.fail(
+        new SourceControlProviderError({
+          provider: "azure-devops",
+          operation: "mergeChangeRequest",
+          cwd: input.cwd,
+          reference: SourceControlProvider.transportSafeSourceControlErrorValue(input.reference),
+          detail: "Merging is not supported for Azure DevOps yet.",
+        }),
+      ),
   });
 });
 

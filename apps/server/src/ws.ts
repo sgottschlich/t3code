@@ -94,6 +94,7 @@ import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as ChangeRequestStatusBroadcaster from "./sourceControl/ChangeRequestStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -363,6 +364,8 @@ const makeWsRpcLayer = (
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const changeRequestStatusBroadcaster =
+        yield* ChangeRequestStatusBroadcaster.ChangeRequestStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -1820,6 +1823,32 @@ const makeWsRpcLayer = (
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetChangeRequestPipeline]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitGetChangeRequestPipeline,
+            gitWorkflow.getChangeRequestPipeline(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitListChangeRequestThreads]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitListChangeRequestThreads,
+            gitWorkflow.listChangeRequestThreads(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitMergeChangeRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitMergeChangeRequest,
+            gitWorkflow
+              .mergeChangeRequest(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.subscribeChangeRequestStatus]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeChangeRequestStatus,
+            changeRequestStatusBroadcaster.streamStatus(input),
+            { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {

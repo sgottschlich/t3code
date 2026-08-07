@@ -18,6 +18,9 @@ export interface NormalizedGitHubPullRequestRecord {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+  readonly isDraft?: boolean;
+  readonly mergeable?: "mergeable" | "conflicting" | "unknown";
+  readonly mergeCommitSha?: string | null;
 }
 
 const GitHubPullRequestSchema = Schema.Struct({
@@ -48,9 +51,18 @@ const GitHubPullRequestSchema = Schema.Struct({
       }),
     ),
   ),
+  isDraft: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  mergeable: Schema.optional(Schema.NullOr(Schema.String)),
+  mergeCommit: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        oid: Schema.optional(Schema.NullOr(Schema.String)),
+      }),
+    ),
+  ),
 });
 
-function trimOptionalString(value: string | null | undefined): string | null {
+export function trimOptionalString(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -70,6 +82,19 @@ function normalizeGitHubPullRequestState(input: {
     return "closed";
   }
   return "open";
+}
+
+function normalizeGitHubMergeable(
+  mergeable: string | null | undefined,
+): "mergeable" | "conflicting" | "unknown" {
+  switch (mergeable?.trim().toUpperCase()) {
+    case "MERGEABLE":
+      return "mergeable";
+    case "CONFLICTING":
+      return "conflicting";
+    default:
+      return "unknown";
+  }
 }
 
 function normalizeGitHubPullRequestRecord(
@@ -99,6 +124,9 @@ function normalizeGitHubPullRequestRecord(
       : {}),
     ...(headRepositoryNameWithOwner ? { headRepositoryNameWithOwner } : {}),
     ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
+    ...(typeof raw.isDraft === "boolean" ? { isDraft: raw.isDraft } : {}),
+    mergeable: normalizeGitHubMergeable(raw.mergeable),
+    mergeCommitSha: trimOptionalString(raw.mergeCommit?.oid),
   };
 }
 

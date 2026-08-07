@@ -2,7 +2,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type {
   ChangeRequest,
+  ChangeRequestMergeResult,
+  ChangeRequestPipeline,
   ChangeRequestState,
+  ChangeRequestThread,
   SourceControlProviderError,
   SourceControlProviderInfo,
   SourceControlProviderKind,
@@ -126,5 +129,30 @@ export class SourceControlProvider extends Context.Service<
       readonly reference: string;
       readonly force?: boolean;
     }) => Effect.Effect<void, SourceControlProviderError>;
+    /**
+     * Fetches the latest pipeline/check run for the change request's head
+     * commit, including the full per-job/stage breakdown. Providers without
+     * pipeline support (Azure DevOps, Bitbucket) fail with a
+     * `SourceControlProviderError` rather than returning an empty pipeline,
+     * so the UI can distinguish "not supported" from "no pipeline yet".
+     */
+    readonly getChangeRequestPipeline: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+      readonly reference: string;
+    }) => Effect.Effect<ChangeRequestPipeline, SourceControlProviderError>;
+    /** Lists review discussion threads, most recently updated first. */
+    readonly listChangeRequestThreads: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<ChangeRequestThread>, SourceControlProviderError>;
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+      readonly reference: string;
+      readonly squash?: boolean;
+      readonly deleteSourceBranch?: boolean;
+    }) => Effect.Effect<ChangeRequestMergeResult, SourceControlProviderError>;
   }
 >()("t3/sourceControl/SourceControlProvider") {}

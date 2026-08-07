@@ -135,6 +135,32 @@ export class GitHubRepositoryDecodeError extends Schema.TaggedErrorClass<GitHubR
   }
 }
 
+export class GitHubPipelineDecodeError extends Schema.TaggedErrorClass<GitHubPipelineDecodeError>()(
+  "GitHubPipelineDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid check run JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in getChangeRequestPipeline: ${this.detail}`;
+  }
+}
+
+export class GitHubThreadDecodeError extends Schema.TaggedErrorClass<GitHubThreadDecodeError>()(
+  "GitHubThreadDecodeError",
+  gitHubCliDecodeFields,
+) {
+  get detail(): string {
+    return "GitHub CLI returned invalid review thread JSON.";
+  }
+
+  override get message(): string {
+    return `GitHub CLI failed in listChangeRequestThreads: ${this.detail}`;
+  }
+}
+
 export const GitHubCliError = Schema.Union([
   GitHubCliUnavailableError,
   GitHubCliAuthenticationError,
@@ -144,10 +170,39 @@ export const GitHubCliError = Schema.Union([
   GitHubChangeRequestListDecodeError,
   GitHubPullRequestDecodeError,
   GitHubRepositoryDecodeError,
+  GitHubPipelineDecodeError,
+  GitHubThreadDecodeError,
 ]);
 export type GitHubCliError = typeof GitHubCliError.Type;
 
 export const isGitHubCliError = Schema.is(GitHubCliError);
+
+export interface GitHubPipelineJob {
+  readonly name: string;
+  readonly stage?: string;
+  readonly status: string;
+  readonly url?: string;
+}
+
+export interface GitHubPipeline {
+  readonly status: string;
+  readonly jobs: ReadonlyArray<GitHubPipelineJob>;
+}
+
+export interface GitHubThread {
+  readonly id: string;
+  readonly author: string;
+  readonly bodyExcerpt: string;
+  readonly resolved: boolean;
+  readonly url?: string;
+  readonly filePath?: string | null;
+  readonly line?: number | null;
+}
+
+export interface GitHubMergeResult {
+  readonly state: "open" | "closed" | "merged";
+  readonly sha?: string | null;
+}
 
 export function fromVcsError(
   context: {
@@ -188,6 +243,9 @@ export interface GitHubPullRequestSummary {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+  readonly isDraft?: boolean;
+  readonly mergeable?: "mergeable" | "conflicting" | "unknown";
+  readonly mergeCommitSha?: string | null;
 }
 
 export interface GitHubRepositoryCloneUrls {
@@ -203,6 +261,7 @@ export class GitHubCli extends Context.Service<
       readonly cwd: string;
       readonly args: ReadonlyArray<string>;
       readonly timeoutMs?: number;
+      readonly allowNonZeroExit?: boolean;
     }) => Effect.Effect<VcsProcess.VcsProcessOutput, GitHubCliError>;
 
     readonly listOpenPullRequests: (input: {
@@ -244,6 +303,23 @@ export class GitHubCli extends Context.Service<
       readonly reference: string;
       readonly force?: boolean;
     }) => Effect.Effect<void, GitHubCliError>;
+
+    readonly getChangeRequestPipeline: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<GitHubPipeline, GitHubCliError>;
+
+    readonly listChangeRequestThreads: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) => Effect.Effect<ReadonlyArray<GitHubThread>, GitHubCliError>;
+
+    readonly mergeChangeRequest: (input: {
+      readonly cwd: string;
+      readonly reference: string;
+      readonly squash?: boolean;
+      readonly deleteSourceBranch?: boolean;
+    }) => Effect.Effect<GitHubMergeResult, GitHubCliError>;
   }
 >()("t3/sourceControl/GitHubCli") {}
 
@@ -255,6 +331,156 @@ const RawGitHubRepositoryCloneUrlsSchema = Schema.Struct({
 const decodeRawGitHubRepositoryCloneUrls = Schema.decodeEffect(
   Schema.fromJsonString(RawGitHubRepositoryCloneUrlsSchema),
 );
+
+const RawGitHubCheckRunSchema = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  workflow: Schema.optional(Schema.NullOr(Schema.String)),
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  bucket: Schema.optional(Schema.NullOr(Schema.String)),
+  link: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const decodeGitHubCheckRunList = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(RawGitHubCheckRunSchema)),
+);
+
+const RawGitHubReviewThreadCommentSchema = Schema.Struct({
+  author: Schema.optional(Schema.NullOr(Schema.Struct({ login: Schema.optional(Schema.NullOr(Schema.String)) }))),
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  url: Schema.optional(Schema.NullOr(Schema.String)),
+  path: Schema.optional(Schema.NullOr(Schema.String)),
+  line: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+const RawGitHubReviewThreadSchema = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  isResolved: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  comments: Schema.optional(
+    Schema.NullOr(Schema.Struct({ nodes: Schema.optional(Schema.Array(RawGitHubReviewThreadCommentSchema)) })),
+  ),
+});
+const RawGitHubReviewThreadsResponseSchema = Schema.Struct({
+  data: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        repository: Schema.optional(
+          Schema.NullOr(
+            Schema.Struct({
+              pullRequest: Schema.optional(
+                Schema.NullOr(
+                  Schema.Struct({
+                    reviewThreads: Schema.optional(
+                      Schema.NullOr(
+                        Schema.Struct({ nodes: Schema.optional(Schema.Array(RawGitHubReviewThreadSchema)) }),
+                      ),
+                    ),
+                  }),
+                ),
+              ),
+            }),
+          ),
+        ),
+      }),
+    ),
+  ),
+});
+const decodeGitHubReviewThreadsResponse = Schema.decodeEffect(
+  Schema.fromJsonString(RawGitHubReviewThreadsResponseSchema),
+);
+
+const REVIEW_THREADS_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          comments(first: 1) {
+            nodes { author { login } body url path line }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+const MAX_THREAD_BODY_EXCERPT_LENGTH = 200;
+
+function truncateBody(body: string | null | undefined): string {
+  const trimmed = body?.trim() ?? "";
+  return trimmed.length > MAX_THREAD_BODY_EXCERPT_LENGTH
+    ? `${trimmed.slice(0, MAX_THREAD_BODY_EXCERPT_LENGTH)}…`
+    : trimmed;
+}
+
+/**
+ * GitHub check runs report both a coarse `bucket` (pass/fail/pending/
+ * skipping/cancel) and a finer-grained raw `state`. The raw state is
+ * preferred when present since it distinguishes queued from in-progress.
+ */
+function normalizeGitHubCheckStatus(
+  state: string | null | undefined,
+  bucket: string | null | undefined,
+): string {
+  switch (state?.trim().toUpperCase()) {
+    case "IN_PROGRESS":
+      return "running";
+    case "QUEUED":
+    case "PENDING":
+    case "WAITING":
+    case "REQUESTED":
+      return "pending";
+    case "SUCCESS":
+    case "NEUTRAL":
+      return "success";
+    case "FAILURE":
+    case "TIMED_OUT":
+    case "ACTION_REQUIRED":
+    case "STARTUP_FAILURE":
+      return "failed";
+    case "CANCELLED":
+      return "canceled";
+    case "SKIPPED":
+    case "STALE":
+      return "skipped";
+  }
+
+  switch (bucket?.trim().toLowerCase()) {
+    case "pass":
+      return "success";
+    case "fail":
+      return "failed";
+    case "pending":
+      return "running";
+    case "skipping":
+      return "skipped";
+    case "cancel":
+      return "canceled";
+    default:
+      return "pending";
+  }
+}
+
+function aggregateGitHubPipelineStatus(jobStatuses: ReadonlyArray<string>): string {
+  if (jobStatuses.length === 0) {
+    return "none";
+  }
+  if (jobStatuses.includes("failed")) {
+    return "failed";
+  }
+  if (jobStatuses.includes("running")) {
+    return "running";
+  }
+  if (jobStatuses.includes("pending")) {
+    return "pending";
+  }
+  if (jobStatuses.every((status) => status === "skipped")) {
+    return "skipped";
+  }
+  if (jobStatuses.every((status) => status === "canceled")) {
+    return "canceled";
+  }
+  return "success";
+}
 
 function normalizeRepositoryCloneUrls(
   raw: Schema.Schema.Type<typeof RawGitHubRepositoryCloneUrlsSchema>,
@@ -314,6 +540,9 @@ export const make = Effect.gen(function* () {
         args: input.args,
         cwd: input.cwd,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ...(input.allowNonZeroExit !== undefined
+          ? { allowNonZeroExit: input.allowNonZeroExit }
+          : {}),
       })
       .pipe(Effect.mapError((error) => fromVcsError({ command: "gh", cwd: input.cwd }, error)));
 
@@ -332,7 +561,7 @@ export const make = Effect.gen(function* () {
           "--limit",
           String(input.limit ?? 1),
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner,isDraft,mergeable,mergeCommit",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -366,7 +595,7 @@ export const make = Effect.gen(function* () {
           "view",
           input.reference,
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner,isDraft,mergeable,mergeCommit",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -450,6 +679,145 @@ export const make = Effect.gen(function* () {
         cwd: input.cwd,
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
       }).pipe(Effect.asVoid),
+    getChangeRequestPipeline: (input) =>
+      execute({
+        cwd: input.cwd,
+        allowNonZeroExit: true,
+        args: ["pr", "checks", input.reference, "--json", "name,state,bucket,link,workflow"],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed<GitHubPipeline>({ status: "none", jobs: [] })
+            : decodeGitHubCheckRunList(raw).pipe(
+                Effect.mapError(
+                  (cause) => new GitHubPipelineDecodeError({ command: "gh", cwd: input.cwd, cause }),
+                ),
+                Effect.map((checks): GitHubPipeline => {
+                  const jobs = checks.map((check) => ({
+                    name: check.name,
+                    status: normalizeGitHubCheckStatus(check.state, check.bucket),
+                    ...(check.workflow ? { stage: check.workflow } : {}),
+                    ...(check.link ? { url: check.link } : {}),
+                  }));
+                  return {
+                    status: aggregateGitHubPipelineStatus(jobs.map((job) => job.status)),
+                    jobs,
+                  };
+                }),
+              ),
+        ),
+      ),
+    listChangeRequestThreads: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["pr", "view", input.reference, "--json", "number"],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          Effect.sync(() => decodeGitHubPullRequestJson(raw)).pipe(
+            Effect.flatMap((decoded) =>
+              Result.isSuccess(decoded)
+                ? Effect.succeed(decoded.success.number)
+                : Effect.fail(
+                    new GitHubPullRequestDecodeError({
+                      command: "gh",
+                      cwd: input.cwd,
+                      cause: decoded.failure,
+                    }),
+                  ),
+            ),
+          ),
+        ),
+        Effect.flatMap((number) =>
+          execute({
+            cwd: input.cwd,
+            args: [
+              "api",
+              "graphql",
+              "-f",
+              `query=${REVIEW_THREADS_QUERY}`,
+              "-F",
+              "owner={owner}",
+              "-F",
+              "repo={repo}",
+              "-F",
+              `number=${number}`,
+            ],
+          }),
+        ),
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          decodeGitHubReviewThreadsResponse(raw).pipe(
+            Effect.mapError(
+              (cause) => new GitHubThreadDecodeError({ command: "gh", cwd: input.cwd, cause }),
+            ),
+          ),
+        ),
+        Effect.map((response) => {
+          const nodes = response.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+          const threads: GitHubThread[] = [];
+          for (const node of nodes) {
+            const comment = node.comments?.nodes?.[0];
+            if (!comment) {
+              continue;
+            }
+            threads.push({
+              id: node.id,
+              author: comment.author?.login?.trim() || "unknown",
+              bodyExcerpt: truncateBody(comment.body),
+              resolved: node.isResolved === true,
+              ...(comment.url ? { url: comment.url } : {}),
+              ...(comment.path ? { filePath: comment.path } : {}),
+              ...(typeof comment.line === "number" ? { line: comment.line } : {}),
+            });
+          }
+          return threads;
+        }),
+      ),
+    mergeChangeRequest: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "merge",
+          input.reference,
+          input.squash ? "--squash" : "--merge",
+          ...(input.deleteSourceBranch ? ["--delete-branch"] : []),
+        ],
+      }).pipe(
+        Effect.flatMap(() =>
+          execute({
+            cwd: input.cwd,
+            args: [
+              "pr",
+              "view",
+              input.reference,
+              "--json",
+              "number,title,url,baseRefName,headRefName,state,mergedAt,mergeCommit",
+            ],
+          }),
+        ),
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          Effect.sync(() => decodeGitHubPullRequestJson(raw)).pipe(
+            Effect.flatMap((decoded) =>
+              Result.isSuccess(decoded)
+                ? Effect.succeed<GitHubMergeResult>({
+                    state: decoded.success.state,
+                    sha: decoded.success.mergeCommitSha ?? null,
+                  })
+                : Effect.fail(
+                    new GitHubPullRequestDecodeError({
+                      command: "gh",
+                      cwd: input.cwd,
+                      cause: decoded.failure,
+                    }),
+                  ),
+            ),
+          ),
+        ),
+      ),
   });
 });
 

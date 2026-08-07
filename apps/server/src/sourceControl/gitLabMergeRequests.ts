@@ -18,6 +18,9 @@ export interface NormalizedGitLabMergeRequestRecord {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+  readonly isDraft?: boolean;
+  readonly mergeable?: "mergeable" | "conflicting" | "unknown";
+  readonly mergeCommitSha?: string | null;
 }
 
 const GitLabProjectReferenceSchema = Schema.Struct({
@@ -46,9 +49,16 @@ const GitLabMergeRequestSchema = Schema.Struct({
   target_project_id: Schema.optional(Schema.NullOr(Schema.Number)),
   source_project: Schema.optional(Schema.NullOr(GitLabProjectReferenceSchema)),
   target_project: Schema.optional(Schema.NullOr(GitLabProjectReferenceSchema)),
+  draft: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  work_in_progress: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  has_conflicts: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  merge_status: Schema.optional(Schema.NullOr(Schema.String)),
+  detailed_merge_status: Schema.optional(Schema.NullOr(Schema.String)),
+  merge_commit_sha: Schema.optional(Schema.NullOr(Schema.String)),
+  sha: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
-function trimOptionalString(value: string | null | undefined): string | null {
+export function trimOptionalString(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -88,6 +98,29 @@ function ownerLoginFromPathWithNamespace(pathWithNamespace: string | null): stri
   return trimOptionalString(owner);
 }
 
+function normalizeGitLabMergeable(
+  raw: Schema.Schema.Type<typeof GitLabMergeRequestSchema>,
+): "mergeable" | "conflicting" | "unknown" {
+  if (raw.has_conflicts === true) {
+    return "conflicting";
+  }
+  const detailed = raw.detailed_merge_status?.trim().toLowerCase();
+  if (detailed === "mergeable") {
+    return "mergeable";
+  }
+  if (detailed === "conflict") {
+    return "conflicting";
+  }
+  const legacy = raw.merge_status?.trim().toLowerCase();
+  if (legacy === "can_be_merged") {
+    return "mergeable";
+  }
+  if (legacy === "cannot_be_merged" || legacy === "cannot_be_merged_recheck") {
+    return "conflicting";
+  }
+  return "unknown";
+}
+
 function normalizeGitLabMergeRequestRecord(
   raw: Schema.Schema.Type<typeof GitLabMergeRequestSchema>,
 ): NormalizedGitLabMergeRequestRecord {
@@ -100,6 +133,7 @@ function normalizeGitLabMergeRequestRecord(
         ? sourceProjectPath.toLowerCase() !== targetProjectPath.toLowerCase()
         : undefined;
   const headRepositoryOwnerLogin = ownerLoginFromPathWithNamespace(sourceProjectPath);
+  const isDraft = raw.draft === true || raw.work_in_progress === true;
 
   return {
     number: raw.iid,
@@ -112,6 +146,9 @@ function normalizeGitLabMergeRequestRecord(
     ...(typeof isCrossRepository === "boolean" ? { isCrossRepository } : {}),
     ...(sourceProjectPath ? { headRepositoryNameWithOwner: sourceProjectPath } : {}),
     ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
+    isDraft,
+    mergeable: normalizeGitLabMergeable(raw),
+    mergeCommitSha: trimOptionalString(raw.merge_commit_sha),
   };
 }
 

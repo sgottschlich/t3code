@@ -34,7 +34,8 @@ export type SourceControlActionKind =
   | "pull"
   | "publishRepository"
   | "runStackedAction"
-  | "preparePullRequestThread";
+  | "preparePullRequestThread"
+  | "mergeChangeRequest";
 
 export interface SourceControlActionScope {
   readonly environmentId: EnvironmentId | null;
@@ -61,6 +62,7 @@ const ACTION_OPERATION = {
   publishRepository: "publish_repository",
   runStackedAction: "run_change_request",
   preparePullRequestThread: "prepare_pull_request_thread",
+  mergeChangeRequest: "merge_change_request",
 } as const satisfies Record<SourceControlActionKind, VcsActionOperation>;
 
 function useAction<
@@ -337,6 +339,46 @@ export function usePreparePullRequestThreadAction(scope: SourceControlActionScop
   return useAction({
     kind: "preparePullRequestThread",
     label: "Preparing pull request thread",
+    scope,
+    action,
+  });
+}
+
+export function useMergeChangeRequestAction(scope: SourceControlActionScope) {
+  const mergeChangeRequest = useAtomCommand(gitEnvironment.mergeChangeRequest, {
+    reportFailure: false,
+  });
+  const action = useCallback(
+    async (input: { reference: string; squash?: boolean; deleteSourceBranch?: boolean }) => {
+      const target = resolveScope(scope);
+      if (target === null) {
+        return AsyncResult.failure<never, VcsActionUnavailableError>(
+          Cause.fail(
+            new VcsActionUnavailableError({
+              operation: "merge_change_request",
+              environmentId: scope.environmentId,
+              cwd: scope.cwd,
+            }),
+          ),
+        );
+      }
+      return mergeChangeRequest({
+        environmentId: target.environmentId,
+        input: {
+          cwd: target.cwd,
+          reference: input.reference,
+          ...(input.squash !== undefined ? { squash: input.squash } : {}),
+          ...(input.deleteSourceBranch !== undefined
+            ? { deleteSourceBranch: input.deleteSourceBranch }
+            : {}),
+        },
+      });
+    },
+    [mergeChangeRequest, scope],
+  );
+  return useAction({
+    kind: "mergeChangeRequest",
+    label: "Merging change request",
     scope,
     action,
   });
