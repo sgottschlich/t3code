@@ -41,6 +41,7 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  CopyPlusIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -85,7 +86,11 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
-import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import {
+  resolveThreadActionProjectRef,
+  startBulkThreadsFromContext,
+  startNewThreadFromContext,
+} from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
@@ -1155,6 +1160,40 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
+  const bulkProjectThreadItems = useMemo(
+    () =>
+      enumerateCommandPaletteItems(
+        buildProjectActionItems({
+          projects: pickerProjects,
+          valuePrefix: "bulk-new-threads-in",
+          searchTerms: (project) => {
+            const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+            return (
+              group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
+            );
+          },
+          icon: projectFavicon,
+          runProject: async (project) => {
+            const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+            const contextualRefBelongsToGroup =
+              contextualProjectRef !== null &&
+              group?.memberProjectRefs.some(
+                (projectRef) =>
+                  projectRef.environmentId === contextualProjectRef.environmentId &&
+                  projectRef.projectId === contextualProjectRef.projectId,
+              );
+            await handleNewThread(
+              contextualRefBelongsToGroup
+                ? contextualProjectRef
+                : scopeProjectRef(project.environmentId, project.id),
+              { bulk: true },
+            );
+          },
+        }),
+      ),
+    [contextualProjectRef, handleNewThread, pickerProjects, projectGroupByTargetKey],
+  );
+
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
@@ -1605,6 +1644,38 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+    });
+
+    if (activeProjectTitle) {
+      actionItems.push({
+        kind: "action",
+        value: "action:bulk-new-threads",
+        searchTerms: ["bulk new threads", "batch", "fan out", "many", "parallel"],
+        title: (
+          <>
+            Bulk new threads in <span className="font-semibold">{activeProjectTitle}</span>
+          </>
+        ),
+        icon: <CopyPlusIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await startBulkThreadsFromContext({
+            activeDraftThread,
+            activeThread: activeThread ?? undefined,
+            defaultProjectRef,
+            handleNewThread,
+          });
+        },
+      });
+    }
+
+    actionItems.push({
+      kind: "submenu",
+      value: "action:bulk-new-threads-in",
+      searchTerms: ["bulk new threads", "batch", "fan out", "project", "pick"],
+      title: "Bulk new threads in...",
+      icon: <CopyPlusIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <CopyPlusIcon className={ADDON_ICON_CLASS} />,
+      groups: [{ value: "projects", label: "Projects", items: bulkProjectThreadItems }],
     });
   }
 
