@@ -22,8 +22,10 @@ const RING_STROKE = 2;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-function UsageRing({ usedPercent }: { usedPercent: number }) {
-  const filled = (Math.min(100, Math.max(0, usedPercent)) / 100) * RING_CIRCUMFERENCE;
+/** Fills with what is LEFT, so the ring drains as the quota is consumed and
+    always agrees with the number beside it. */
+function UsageRing({ remainingPercent }: { remainingPercent: number }) {
+  const filled = (Math.min(100, Math.max(0, remainingPercent)) / 100) * RING_CIRCUMFERENCE;
   return (
     <svg
       aria-hidden="true"
@@ -79,7 +81,7 @@ function ProviderUsageRow({ row }: { row: SidebarUsageRowView }) {
                   className={`flex items-center gap-1 ${TONE_TEXT_STYLES[window.tone]}`}
                 >
                   <span className="font-normal opacity-70">{window.label}</span>
-                  <UsageRing usedPercent={window.usedPercent} />
+                  <UsageRing remainingPercent={window.remainingPercent} />
                   {window.percentLabel}
                 </span>
               ))}

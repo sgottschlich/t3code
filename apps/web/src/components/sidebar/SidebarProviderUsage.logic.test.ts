@@ -47,8 +47,10 @@ describe("shortWindowLabel", () => {
     ["5 hour", "5h"],
     ["Weekly", "1w"],
     ["7-day", "1w"],
+    ["30-day", "30d"],
     ["Monthly", "1mo"],
-    ["primary", "prima…"],
+    ["Session", "Session"],
+    ["Opus weekly allowance", "Opus we…"],
   ])("shortens %s to %s", (label, expected) => {
     expect(shortWindowLabel(label)).toBe(expected);
   });
@@ -59,7 +61,13 @@ describe("toSidebarUsageRows", () => {
     const [row] = toSidebarUsageRows(pool([{ id: "five_hour", label: "5-hour", usedPercent: 30 }]));
 
     expect(row?.windows[0]?.percentLabel).toBe("70%");
-    expect(row?.windows[0]?.usedPercent).toBe(30);
+  });
+
+  it("makes the ring and the number read the same value", () => {
+    const [row] = toSidebarUsageRows(pool([{ id: "seven_day", label: "Weekly", usedPercent: 82 }]));
+
+    expect(row?.windows[0]?.percentLabel).toBe("18%");
+    expect(row?.windows[0]?.remainingPercent).toBe(18);
   });
 
   it("carries the worst window tone onto the row", () => {

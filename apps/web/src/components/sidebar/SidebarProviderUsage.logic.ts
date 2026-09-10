@@ -6,7 +6,9 @@ export interface SidebarUsageWindowView {
   readonly key: string;
   /** Short window label ("5h", "1w"), derived from the pooled window's own label. */
   readonly label: string;
-  readonly usedPercent: number;
+  /** Share still open, 0-100. The ring and the number both read this, so a
+      nearly empty ring can never sit next to a large number. */
+  readonly remainingPercent: number;
   readonly percentLabel: string;
   readonly tone: ProviderUsageTone;
   readonly detail: string;
@@ -54,9 +56,14 @@ export function shortWindowLabel(label: string): string {
   const compact = label.trim();
   const hours = /^(\d+)\s*-?\s*hour/i.exec(compact);
   if (hours) return `${hours[1]}h`;
-  if (/^weekly$/i.test(compact) || /^7\s*-?\s*day/i.test(compact)) return "1w";
+  const days = /^(\d+)\s*-?\s*day/i.exec(compact);
+  if (days) return days[1] === "7" ? "1w" : `${days[1]}d`;
+  if (/^weekly$/i.test(compact)) return "1w";
   if (/^monthly$/i.test(compact)) return "1mo";
-  return compact.length <= 6 ? compact : `${compact.slice(0, 5)}…`;
+  // Codex labels its rolling window "Session" and gives no duration, so
+  // there is nothing shorter to compute. Single words ride along whole
+  // rather than becoming an ellipsis that says less than the word did.
+  return compact.length <= 8 ? compact : `${compact.slice(0, 7)}…`;
 }
 
 /**
@@ -70,13 +77,14 @@ export function toSidebarUsageRows(
   return pools.flatMap((pool) => {
     const windows = pool.windows.map((window): SidebarUsageWindowView => {
       const usedPercent = Math.round(window.usedPercent);
+      const remainingPercent = Math.min(100, Math.max(0, 100 - usedPercent));
       return {
         key: `${window.kind}:${window.id}`,
         label: shortWindowLabel(window.label),
-        usedPercent,
-        percentLabel: `${Math.max(0, 100 - usedPercent)}%`,
+        remainingPercent,
+        percentLabel: `${remainingPercent}%`,
         tone: usageToneForPercent(usedPercent),
-        detail: `${window.label}: ${Math.max(0, 100 - usedPercent)}% left`,
+        detail: `${window.label}: ${remainingPercent}% left`,
       };
     });
     if (windows.length === 0) return [];
