@@ -236,6 +236,8 @@ import {
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId, randomUUID } from "~/lib/utils";
+import { resolveProjectAccentColor } from "~/projectAccentColor";
+import { ChatHeaderAccent, chatHeaderAccentStyle } from "./chat/ChatHeaderAccent";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
 import { getProviderModelCapabilities } from "../providerModels";
@@ -2061,6 +2063,10 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread?.environmentId, activeThread?.projectId],
   );
   const activeProject = useProject(activeProjectRef);
+  const activeProjectAccent = useMemo(
+    () => resolveProjectAccentColor(activeProject),
+    [activeProject],
+  );
   const activeProjectScripts = useMemo(
     () => (activeProject ? resolveProjectScripts(settings, activeProject) : []),
     [activeProject, settings],
@@ -8566,6 +8572,7 @@ export default function ChatView(props: ChatViewProps) {
           electron={isElectron}
           reserveNativeControls={reserveTitleBarControlInset && !inlineRightPanelOwnsTitleBar}
           className="relative bg-background"
+          {...chatHeaderAccentStyle(activeProjectAccent)}
         >
           {isElectron && rightPanelControlsAtRoot ? (
             <span
@@ -8603,6 +8610,7 @@ export default function ChatView(props: ChatViewProps) {
             onDeleteProjectScript={deleteProjectScript}
           />
         </WorkspacePageHeader>
+        <ChatHeaderAccent color={activeProjectAccent} />
 
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">

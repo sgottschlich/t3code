@@ -35,6 +35,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { projectFaviconUrlAtom } from "../state/assets";
 import { selectProjectIcon, type ProjectIconName } from "../projectIconModel";
 import { projectIconColorClassName } from "../projectIconColors";
+import { projectAccentSwatchClassName } from "../projectAccentSwatches";
 import { cn } from "~/lib/utils";
 
 const DynamicIcon = lazy(() =>
@@ -70,7 +71,7 @@ const PROJECT_ICONS: Record<ProjectIconName, ComponentType<{ className?: string 
   web: Globe2Icon,
 };
 
-const PROJECT_ICON_COLOR_BY_NAME: Record<ProjectIconName, ProjectIconColor> = {
+export const PROJECT_ICON_COLOR_BY_NAME: Record<ProjectIconName, ProjectIconColor> = {
   ai: "violet",
   book: "amber",
   braces: "purple",
@@ -168,6 +169,9 @@ export function ProjectFavicon(input: {
     project.faviconPath,
   );
 
+  // Only the automatic icon reaches this branch: explicit overrides returned above.
+  const badgeColor =
+    automaticIconName?.kind === "lucide" ? PROJECT_ICON_COLOR_BY_NAME[automaticIconName.icon] : null;
   return (
     <ProjectFaviconImage
       key={cacheKey}
@@ -176,6 +180,7 @@ export function ProjectFavicon(input: {
       fallbackIcon={FallbackIcon}
       fallbackEmoji={fallbackEmoji}
       fallbackColorClassName={fallbackColorClassName}
+      {...(badgeColor ? { badgeSwatchClassName: projectAccentSwatchClassName(badgeColor) } : {})}
     />
   );
 }
@@ -209,18 +214,59 @@ function ProjectFaviconFallback({
   return <Icon className={cn("size-3.5 shrink-0 text-icon-muted", colorClassName, className)} />;
 }
 
+/**
+ * A favicon image cannot be tinted, so the project's accent rides along as a
+ * corner dot. Without it a project with a real favicon is the only one that
+ * shows no color at all.
+ */
+function ProjectFaviconImageMark({
+  src,
+  className,
+  badgeSwatchClassName,
+  onLoadError,
+}: {
+  readonly src: string;
+  readonly className?: string | undefined;
+  readonly badgeSwatchClassName?: string | undefined;
+  readonly onLoadError: (failedSrc: string) => void;
+}) {
+  const image = (
+    <img
+      src={src}
+      alt=""
+      className={cn("size-3.5 shrink-0 rounded-[37.5%] object-contain", className)}
+      onError={() => onLoadError(src)}
+    />
+  );
+  if (!badgeSwatchClassName) return image;
+  return (
+    <span className="relative inline-flex shrink-0">
+      {image}
+      <span
+        aria-hidden
+        className={cn(
+          "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-background",
+          badgeSwatchClassName,
+        )}
+      />
+    </span>
+  );
+}
+
 function ProjectFaviconImage({
   src,
   className,
   fallbackIcon: FallbackIcon,
   fallbackEmoji,
   fallbackColorClassName,
+  badgeSwatchClassName,
 }: {
   readonly src: string;
   readonly className?: string | undefined;
   readonly fallbackIcon?: ComponentType<{ className?: string }> | undefined;
   readonly fallbackEmoji?: string | undefined;
   readonly fallbackColorClassName?: string | undefined;
+  readonly badgeSwatchClassName?: string | undefined;
 }) {
   const [displayedSrc, setDisplayedSrc] = useState<string | null>(() =>
     src.startsWith("data:image/") ? src : null,
@@ -241,11 +287,11 @@ function ProjectFaviconImage({
         />
       ) : null}
       {displayedSrc ? (
-        <img
+        <ProjectFaviconImageMark
           src={displayedSrc}
-          alt=""
-          className={cn("size-3.5 shrink-0 rounded-[37.5%] object-contain", className)}
-          onError={() => handleLoadError(displayedSrc)}
+          className={className}
+          badgeSwatchClassName={badgeSwatchClassName}
+          onLoadError={handleLoadError}
         />
       ) : null}
       {isLoading ? (
