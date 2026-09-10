@@ -962,6 +962,30 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    listRoutines: createEnvironmentRpcCommand(runtime, {
+      label: "List routines",
+      tag: WS_METHODS.routinesList,
+    }),
+    saveRoutine: createEnvironmentRpcCommand(runtime, {
+      label: "Save routine",
+      tag: WS_METHODS.routinesSave,
+    }),
+    deleteRoutine: createEnvironmentRpcCommand(runtime, {
+      label: "Delete routine",
+      tag: WS_METHODS.routinesDelete,
+    }),
+    runRoutine: createEnvironmentRpcCommand(runtime, {
+      label: "Run routine",
+      tag: WS_METHODS.routinesRun,
+    }),
+    scanWorktrees: createEnvironmentRpcCommand(runtime, {
+      label: "Scan worktrees",
+      tag: WS_METHODS.worktreesScan,
+    }),
+    cleanupWorktree: createEnvironmentRpcCommand(runtime, {
+      label: "Clean up worktree",
+      tag: WS_METHODS.worktreesCleanup,
+    }),
     updateStateAtom,
     settingsValueAtom,
     providersValueAtom,

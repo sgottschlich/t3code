@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 
 import { ServerConfig } from "../config.ts";
@@ -13,6 +14,7 @@ import * as ReviewService from "./ReviewService.ts";
 function makeLayer(input: {
   readonly workspaceRoot: string;
   readonly baseDir: string;
+  readonly worktreesDir?: string;
   readonly detectCalls?: Array<{ readonly cwd: string }>;
 }) {
   return ReviewService.layer.pipe(
@@ -28,12 +30,41 @@ function makeLayer(input: {
       }),
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-    Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
+    Layer.provide(
+      Layer.effect(
+        ServerConfig,
+        Effect.map(ServerConfig, (config) => ({
+          ...config,
+          worktreesDir: input.worktreesDir ?? config.worktreesDir,
+        })),
+      ).pipe(Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir))),
+    ),
     Layer.provideMerge(NodeServices.layer),
   );
 }
 
 describe("ReviewService", () => {
+  it.effect("accepts both configured and original default worktree roots", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "review-roots-" });
+      const worktreesDir = yield* fs.makeTempDirectoryScoped({ prefix: "review-custom-" });
+      const oldWorktree = path.join(baseDir, "worktrees", "repo", "old");
+      const newWorktree = path.join(worktreesDir, "repo", "new");
+      yield* fs.makeDirectory(oldWorktree, { recursive: true });
+      yield* fs.makeDirectory(newWorktree, { recursive: true });
+      yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        assert.deepStrictEqual((yield* review.getDiffPreview({ cwd: oldWorktree })).sources, []);
+        assert.deepStrictEqual((yield* review.getDiffPreview({ cwd: newWorktree })).sources, []);
+      }).pipe(
+        Effect.provide(
+          makeLayer({ workspaceRoot: path.join(baseDir, "project"), baseDir, worktreesDir }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
   it.effect("rejects diff preview cwd outside the configured workspace roots", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

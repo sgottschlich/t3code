@@ -17,6 +17,11 @@ import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 
+class WorktreesDirectoryError extends Schema.TaggedError<WorktreesDirectoryError>()(
+  "WorktreesDirectoryError",
+  { message: Schema.String },
+) {}
+
 const modeFlag = Flag.choice("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
   Flag.optional,
@@ -105,6 +110,10 @@ const EnvServerConfig = Config.all({
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
   t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  worktreesDir: Config.string("T3CODE_WORKTREES_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -142,6 +151,7 @@ const EnvServerConfig = Config.all({
 });
 
 export interface CliServerFlags {
+  readonly worktreesDir?: Option.Option<string>;
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
@@ -171,6 +181,12 @@ export const projectLocationFlags = {
 } as const;
 
 export const sharedServerCommandFlags = {
+  worktreesDir: Flag.string("worktrees-dir").pipe(
+    Flag.withDescription(
+      "Absolute directory for new worktrees (equivalent to T3CODE_WORKTREES_DIR).",
+    ),
+    Flag.optional,
+  ),
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
@@ -280,8 +296,18 @@ export const resolveServerConfig = (
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
     yield* fs.makeDirectory(cwd, { recursive: true });
+    const rawWorktreesDir =
+      Option.getOrUndefined(flags.worktreesDir ?? Option.none()) ?? env.worktreesDir;
+    const worktreesDir =
+      rawWorktreesDir === undefined ? undefined : yield* expandHomePath(rawWorktreesDir.trim());
+    if (worktreesDir !== undefined && !path.isAbsolute(worktreesDir)) {
+      return yield* new WorktreesDirectoryError({
+        message: "--worktrees-dir / T3CODE_WORKTREES_DIR must be an absolute path.",
+      });
+    }
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
+      ...(worktreesDir === undefined ? {} : { worktreesDir: path.normalize(worktreesDir) }),
     });
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
