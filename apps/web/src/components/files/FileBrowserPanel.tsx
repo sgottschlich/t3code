@@ -14,6 +14,8 @@ import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
+import { useRevealInFileManager } from "~/hooks/useRevealInFileManager";
+import { resolvePathLinkTarget } from "~/terminal-links";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTheme } from "~/hooks/useTheme";
 import { useWorkspaceMutationRefresh } from "~/hooks/useWorkspaceMutationRefresh";
@@ -104,6 +106,7 @@ export default function FileBrowserPanel({
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
+  const revealInFileManager = useRevealInFileManager(environmentId);
   const entriesQuery = useProjectEntriesQuery(environmentId, cwd);
   const entries = entriesQuery.data?.entries ?? [];
   const entryKinds = useMemo(
@@ -155,9 +158,16 @@ export default function FileBrowserPanel({
         [
           { id: "copy-mention", label: "Copy mention" },
           { id: "add-to-chat", label: "Add to chat" },
+          ...(revealInFileManager.label
+            ? [{ id: "reveal-in-file-manager", label: revealInFileManager.label }]
+            : []),
         ],
         position,
       );
+      if (clicked === "reveal-in-file-manager") {
+        void revealInFileManager.reveal(resolvePathLinkTarget(relativePath, cwd));
+        return;
+      }
       if (clicked === "copy-mention") {
         try {
           await writeTextToClipboard(mention);

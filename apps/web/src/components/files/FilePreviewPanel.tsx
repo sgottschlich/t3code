@@ -19,7 +19,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { Code2, Eye, FolderTree, Globe2 } from "lucide-react";
+import { Code2, Eye, FolderSearch, FolderTree, Globe2 } from "lucide-react";
+import { useRevealInFileManager } from "~/hooks/useRevealInFileManager";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1028,6 +1029,7 @@ export default function FilePreviewPanel({
   const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const canToggleRendered = attachment === undefined && (isMarkdown || isHtml);
+  const revealInFileManager = useRevealInFileManager(environmentId);
   const rendered = isMarkdown ? renderMarkdown : renderBrowserFile;
   const setRenderedPreferred = isMarkdown
     ? setRenderMarkdownPreferred
@@ -1144,6 +1146,25 @@ export default function FilePreviewPanel({
               compact
               enableShortcut={false}
             />
+          ) : null}
+          {revealInFileManager.label && absolutePath !== null ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    className="shrink-0"
+                    pressed={false}
+                    onPressedChange={() => void revealInFileManager.reveal(absolutePath)}
+                    aria-label={revealInFileManager.label}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    <FolderSearch className="size-3.5" />
+                  </Toggle>
+                }
+              />
+              <TooltipPopup>{revealInFileManager.label}</TooltipPopup>
+            </Tooltip>
           ) : null}
           {canToggleRendered ? (
             <Tooltip>
