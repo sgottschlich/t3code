@@ -232,6 +232,7 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { groupActiveThreadsByStatus } from "./sidebar/activeThreadStatusGroups";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -559,6 +560,29 @@ function SortableSidebarMarker(props: {
     >
       {props.children}
     </li>
+  );
+}
+
+// Subheading inside the inbox. Quieter than the shelf headers: these split
+// one section rather than separating lifecycle states, and there is nothing
+// to collapse.
+function SidebarStatusGroupHeader(props: {
+  marker: SidebarListMarker;
+  label: string;
+  count: number;
+}) {
+  return (
+    <SortableSidebarMarker
+      marker={props.marker}
+      data-testid={`sidebar-${props.marker}`}
+      className="mx-0.5 h-6"
+    >
+      <div className="flex h-full w-full items-center gap-2 px-2 text-[11px] font-medium text-sidebar-muted-foreground/60">
+        <span className="shrink-0">{props.label}</span>
+        <span className="shrink-0 tabular-nums opacity-70">{props.count}</span>
+        <span aria-hidden className="h-px min-w-2 flex-1 bg-sidebar-border/50" />
+      </div>
+    </SortableSidebarMarker>
   );
 }
 
@@ -2503,6 +2527,7 @@ export default function Sidebar() {
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
+    activeThreadGroups,
     activeThreads,
     snoozedThreads,
     settledThreads,
@@ -2575,7 +2600,13 @@ export default function Sidebar() {
     // sort, or mixed-version fleets would render different pinned orders on
     // web and mobile from the same data.
     const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-    const sortedActive = sortThreadsForSidebar(active);
+    // The inbox groups by status, so its rows have no manual order to
+    // preserve: recency decides within a group and the group decides the
+    // rest. Ordering by drop position would fight the grouping.
+    const activeGroups = groupActiveThreadsByStatus(
+      sortThreadsForSidebar(active),
+      resolveSidebarThreadStatus,
+    );
     return {
       pinnedThreads:
         optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -2587,14 +2618,8 @@ export default function Sidebar() {
             }),
       draggableThreadKeys: draggable,
       activeReorderableThreadKeys: activeReorderable,
-      activeThreads:
-        optimisticDrop?.section !== "active" || optimisticDrop.order === null
-          ? sortedActive
-          : orderItemsByPreferredIds({
-              items: sortedActive,
-              preferredIds: optimisticDrop.order,
-              getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-            }),
+      activeThreadGroups: activeGroups,
+      activeThreads: activeGroups.flatMap((group) => group.threads),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -3326,9 +3351,13 @@ export default function Sidebar() {
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
+    // One subheading per non-empty status group. The rows stay in the same
+    // flat sortable list, so drag targets and keyboard traversal are unchanged.
+    for (const group of activeThreadGroups) {
+      items.push({ kind: "marker", marker: `active-status-${group.key}` });
+      items.push(...rowsOf(group.threads, "active"));
+    }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
       items.push(...rowsOf(visibleSnoozedThreads, "snoozed"));
@@ -3339,6 +3368,7 @@ export default function Sidebar() {
     items.push(...settledRows);
     return items;
   }, [
+    activeThreadGroups,
     activeThreads,
     pinnedThreads,
     renderedSettledThreads,
@@ -3529,7 +3559,10 @@ export default function Sidebar() {
               ...(plan.orderKey === undefined ? [] : [{ id: activeKey, orderKey: plan.orderKey }]),
               ...plan.extraAssignments,
             ]
-          : plan.kind === "reorder-pinned" || plan.kind === "move-active"
+          : // move-active writes no order keys: the inbox is grouped by status,
+            // so a dropped row lands where its status puts it, not where the
+            // pointer left it. The drop keeps its lifecycle effect.
+            plan.kind === "reorder-pinned"
             ? plan.assignments
             : [];
       const drop = {
@@ -3541,7 +3574,7 @@ export default function Sidebar() {
           plan.kind === "pin" ||
           plan.kind === "settle" ||
           (plan.kind === "move-active" && plan.unsnooze),
-        order: plan.kind === "settle" ? null : plan.order,
+        order: plan.kind === "settle" || plan.kind === "move-active" ? null : plan.order,
         keysAtDrop: target.section === "active" ? activeKeysById : pinnedKeysById,
         assignedKeys: new Map(assignments.map(({ id, orderKey }) => [id, orderKey])),
       };
@@ -4894,6 +4927,21 @@ export default function Sidebar() {
                               />,
                             );
                             break;
+                          default: {
+                            const group = activeThreadGroups.find(
+                              (candidate) => `active-status-${candidate.key}` === item.marker,
+                            );
+                            if (group === undefined) break;
+                            items.push(
+                              <SidebarStatusGroupHeader
+                                key={item.marker}
+                                marker={item.marker}
+                                label={group.label}
+                                count={group.threads.length}
+                              />,
+                            );
+                            break;
+                          }
                         }
                       }
                       return items;

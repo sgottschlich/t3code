@@ -17,6 +17,7 @@ import {
   type SettledThreadTimestampInput,
   type ThreadSortInput,
 } from "../lib/threadSort";
+import type { ActiveStatusGroupKey } from "./sidebar/activeThreadStatusGroups";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
@@ -108,7 +109,10 @@ export type SidebarListMarker =
   /** The boundary between pinned and active rows. */
   | "pinned-divider"
   | "snoozed-header"
-  | "settled-header";
+  | "settled-header"
+  /** Status subheadings inside the active section (see activeThreadStatusGroups).
+      They label rows only; the section a slot belongs to is unaffected. */
+  | `active-status-${ActiveStatusGroupKey}`;
 
 export function sidebarMarkerId(marker: SidebarListMarker): string {
   return `${SIDEBAR_MARKER_PREFIX}${marker}`;
