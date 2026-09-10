@@ -235,7 +235,7 @@ import {
   nextProjectScriptId,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
-import { newDraftId, newMessageId, newThreadId, randomUUID } from "~/lib/utils";
+import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { resolveProjectAccentColor } from "~/projectAccentColor";
 import { ChatHeaderAccent, chatHeaderAccentStyle } from "./chat/ChatHeaderAccent";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
@@ -430,13 +430,9 @@ import {
   waitForStartedServerThread,
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
-import {
-  MAX_QUEUED_MESSAGES,
-  useMessageQueueStore,
-  useThreadMessageQueue,
-} from "../messageQueueStore";
+import type { QueuedMessage } from "../messageQueueStore";
 import { ComposerQueueList } from "./chat/ComposerQueueList";
-import { canFlushQueuedMessage, shouldQueueOutgoingMessage } from "./chat/messageQueue.logic";
+import { useComposerMessageQueue } from "./chat/useComposerMessageQueue";
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
@@ -1909,14 +1905,6 @@ export default function ChatView(props: ChatViewProps) {
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const queuedMessages = useThreadMessageQueue(activeThreadKey);
-  const enqueueQueuedMessage = useMessageQueueStore((store) => store.enqueueMessage);
-  const requeueQueuedMessage = useMessageQueueStore((store) => store.requeueMessage);
-  const takeQueuedMessage = useMessageQueueStore((store) => store.takeMessage);
-  const discardQueuedMessage = useMessageQueueStore((store) => store.discardMessage);
-  // A failed flush must not retry in a loop: the requeue would immediately
-  // satisfy the flush condition again. Held until the user acts on the queue.
-  const [queueFlushHaltedThreadKey, setQueueFlushHaltedThreadKey] = useState<string | null>(null);
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
@@ -6840,17 +6828,7 @@ export default function ChatView(props: ChatViewProps) {
     // Anything submitted while the agent is busy waits in the queue instead of
     // steering the running turn. Nothing is dispatched here, so the prompt is
     // not part of the conversation until it is actually flushed.
-    if (
-      isServerThread &&
-      activeThreadKey &&
-      shouldQueueOutgoingMessage({
-        phase,
-        isSendBusy,
-        hasPendingApproval: activePendingApproval !== null,
-        hasPendingUserInput: pendingUserInputs.length > 0,
-        queuedCount: queuedMessages.length,
-      })
-    ) {
+    if (messageQueue.shouldQueueNextSend) {
       const queuedText = foldComposerContextsIntoPrompt({
         prompt: promptForSend,
         terminalContexts: sendableComposerTerminalContexts,
@@ -6858,20 +6836,7 @@ export default function ChatView(props: ChatViewProps) {
         previewAnnotations: composerPreviewAnnotations,
         reviewComments: composerReviewComments,
       });
-      const enqueued = enqueueQueuedMessage(activeThreadKey, {
-        id: randomUUID(),
-        text: queuedText,
-        images: [...composerImages],
-        createdAt: new Date().toISOString(),
-      });
-      if (!enqueued) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "warning",
-            title: "Queue is full",
-            description: `Send or remove a queued message before adding more (limit ${MAX_QUEUED_MESSAGES}).`,
-          }),
-        );
+      if (!messageQueue.enqueue({ text: queuedText, images: composerImages })) {
         return;
       }
       if (expiredTerminalContextCount > 0) {
@@ -6887,7 +6852,6 @@ export default function ChatView(props: ChatViewProps) {
           }),
         );
       }
-      setQueueFlushHaltedThreadKey(null);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -7364,22 +7328,13 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
 
-  /**
-   * Dispatches one queued prompt. Shared by the automatic flush and the
-   * per-entry send action — the latter deliberately works mid-turn, because
-   * sending by hand is how the user steers a running agent.
-   */
-  const sendQueuedMessage = useCallback(
-    async (queuedMessageId: string) => {
+  /** Starts a turn for one queued prompt. False leaves it to the queue to put
+      the entry back; this only undoes what it did optimistically. */
+  const dispatchQueuedMessage = useCallback(
+    async (queued: QueuedMessage) => {
       const threadKey = activeThreadKey;
       const thread = activeThread;
-      if (!threadKey || !thread || !isServerThread || sendInFlightRef.current) {
-        return;
-      }
-      const queued = takeQueuedMessage(threadKey, queuedMessageId);
-      if (!queued) {
-        return;
-      }
+      if (!threadKey || !thread) return false;
       sendInFlightRef.current = true;
       // Without a mounted composer there is no model context to read, so the
       // prompt goes out unprefixed rather than not at all.
@@ -7468,8 +7423,6 @@ export default function ChatView(props: ChatViewProps) {
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
-        requeueQueuedMessage(threadKey, queued);
-        setQueueFlushHaltedThreadKey(threadKey);
         resetLocalDispatch();
         if (dispatchError !== null) {
           setThreadError(
@@ -7477,9 +7430,10 @@ export default function ChatView(props: ChatViewProps) {
             dispatchError instanceof Error ? dispatchError.message : "Failed to send message.",
           );
         }
-        return;
+        return false;
       }
       acknowledgeActiveThreadWoke();
+      return true;
     },
     [
       acknowledgeActiveThreadWoke,
@@ -7489,56 +7443,25 @@ export default function ChatView(props: ChatViewProps) {
       beginLocalDispatch,
       environmentId,
       interactionMode,
-      isServerThread,
-      requeueQueuedMessage,
       resetLocalDispatch,
       runtimeMode,
       setThreadError,
       startThreadTurn,
-      takeQueuedMessage,
     ],
   );
 
-  const queueHeadId = queuedMessages[0]?.id ?? null;
-  const canFlushQueue =
-    queueHeadId !== null &&
-    activeThreadKey !== null &&
-    queueFlushHaltedThreadKey !== activeThreadKey &&
-    canFlushQueuedMessage({
-      phase,
-      hasActiveTurn: (activeThread?.session?.activeTurnId ?? null) !== null,
-      isSendBusy,
-      isSendInFlight: sendInFlightRef.current,
-      hasPendingApproval: activePendingApproval !== null,
-      hasPendingUserInput: pendingUserInputs.length > 0,
-      hasActionableProposedPlan: hasActionableProposedPlan(activeProposedPlan),
-    });
-
-  useEffect(() => {
-    if (!canFlushQueue || queueHeadId === null) {
-      return;
-    }
-    void sendQueuedMessage(queueHeadId);
-  }, [canFlushQueue, queueHeadId, sendQueuedMessage]);
-
-  const onSendQueuedMessageNow = useCallback(
-    (queuedMessageId: string) => {
-      setQueueFlushHaltedThreadKey(null);
-      void sendQueuedMessage(queuedMessageId);
-    },
-    [sendQueuedMessage],
-  );
-
-  const onDiscardQueuedMessage = useCallback(
-    (queuedMessageId: string) => {
-      if (!activeThreadKey) {
-        return;
-      }
-      setQueueFlushHaltedThreadKey(null);
-      discardQueuedMessage(activeThreadKey, queuedMessageId);
-    },
-    [activeThreadKey, discardQueuedMessage],
-  );
+  const messageQueue = useComposerMessageQueue({
+    threadKey: activeThreadKey,
+    isServerThread,
+    sendInFlightRef,
+    phase,
+    isSendBusy,
+    hasActiveTurn: (activeThread?.session?.activeTurnId ?? null) !== null,
+    hasPendingApproval: activePendingApproval !== null,
+    hasPendingUserInput: pendingUserInputs.length > 0,
+    hasActionableProposedPlan: hasActionableProposedPlan(activeProposedPlan),
+    dispatch: dispatchQueuedMessage,
+  });
 
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
@@ -8764,10 +8687,10 @@ export default function ChatView(props: ChatViewProps) {
                     </div>
                   ) : null}
                   <ComposerQueueList
-                    messages={queuedMessages}
+                    messages={messageQueue.messages}
                     disabled={activeEnvironmentUnavailable}
-                    onSendNow={onSendQueuedMessageNow}
-                    onDiscard={onDiscardQueuedMessage}
+                    onSendNow={messageQueue.onSendNow}
+                    onDiscard={messageQueue.onDiscard}
                   />
                   <div
                     className="relative"
