@@ -29,8 +29,8 @@ import {
   VideoIcon,
 } from "lucide-react";
 import type { IconName } from "lucide-react/dynamic";
-import type { ComponentType } from "react";
-import { lazy, Suspense, useState } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { Fragment, lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import { projectFaviconUrlAtom } from "../state/assets";
 import { selectProjectIcon, type ProjectIconName } from "../projectIconModel";
@@ -214,45 +214,6 @@ function ProjectFaviconFallback({
   return <Icon className={cn("size-3.5 shrink-0 text-icon-muted", colorClassName, className)} />;
 }
 
-/**
- * A favicon image cannot be tinted, so the project's accent rides along as a
- * corner dot. Without it a project with a real favicon is the only one that
- * shows no color at all.
- */
-function ProjectFaviconImageMark({
-  src,
-  className,
-  badgeSwatchClassName,
-  onLoadError,
-}: {
-  readonly src: string;
-  readonly className?: string | undefined;
-  readonly badgeSwatchClassName?: string | undefined;
-  readonly onLoadError: (failedSrc: string) => void;
-}) {
-  const image = (
-    <img
-      src={src}
-      alt=""
-      className={cn("size-3.5 shrink-0 rounded-[37.5%] object-contain", className)}
-      onError={() => onLoadError(src)}
-    />
-  );
-  if (!badgeSwatchClassName) return image;
-  return (
-    <span className="relative inline-flex shrink-0">
-      {image}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-background",
-          badgeSwatchClassName,
-        )}
-      />
-    </span>
-  );
-}
-
 function ProjectFaviconImage({
   src,
   className,
@@ -276,8 +237,11 @@ function ProjectFaviconImage({
     setDisplayedSrc((currentSrc) => (currentSrc === failedSrc ? null : currentSrc));
   };
 
+  // Keep the badge LAST and the wrapper conditional: the fallback, the shown
+  // image and the preloader stay at the same child positions either way.
+  const Wrapper = displayedSrc && badgeSwatchClassName ? BadgedFaviconWrapper : Fragment;
   return (
-    <>
+    <Wrapper>
       {displayedSrc === null ? (
         <ProjectFaviconFallback
           className={className}
@@ -287,11 +251,11 @@ function ProjectFaviconImage({
         />
       ) : null}
       {displayedSrc ? (
-        <ProjectFaviconImageMark
+        <img
           src={displayedSrc}
-          className={className}
-          badgeSwatchClassName={badgeSwatchClassName}
-          onLoadError={handleLoadError}
+          alt=""
+          className={cn("size-3.5 shrink-0 rounded-[37.5%] object-contain", className)}
+          onError={() => handleLoadError(displayedSrc)}
         />
       ) : null}
       {isLoading ? (
@@ -305,6 +269,21 @@ function ProjectFaviconImage({
           onError={() => handleLoadError(src)}
         />
       ) : null}
-    </>
+      {displayedSrc && badgeSwatchClassName ? (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-background",
+            badgeSwatchClassName,
+          )}
+        />
+      ) : null}
+    </Wrapper>
   );
+}
+
+/** A favicon image cannot be tinted, so the project's accent rides along as a
+    corner dot. Only badged favicons get this positioning context. */
+function BadgedFaviconWrapper({ children }: { readonly children?: ReactNode }) {
+  return <span className="relative inline-flex shrink-0">{children}</span>;
 }
