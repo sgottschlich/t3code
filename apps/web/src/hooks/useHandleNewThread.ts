@@ -45,6 +45,7 @@ interface NewThreadWorkspaceOptions {
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
+  bulk?: boolean;
 }
 
 // The workspace options the caller passed explicitly, shaped for the draft
@@ -77,6 +78,11 @@ export function useNewThreadHandler() {
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
+        /**
+         * Opens the draft in bulk mode, where sending expands its
+         * `{{placeholder}}` tokens into one thread per value.
+         */
+        bulk?: boolean;
         replace?: boolean;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
@@ -169,8 +175,25 @@ export function useNewThreadHandler() {
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
-      const hasEnvModeOption = options?.envMode !== undefined;
-      const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
+      // Bulk threads always get their own worktree: several agents editing one
+      // checkout in parallel would fight over the same files.
+      const requestedEnvMode: DraftThreadEnvMode | undefined =
+        options?.bulk === true ? "worktree" : options?.envMode;
+      const requestedStartFromOrigin =
+        options?.startFromOrigin ??
+        (options?.bulk === true
+          ? resolveNewDraftStartFromOrigin({
+              envMode: "worktree",
+              newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
+            })
+          : undefined);
+      const hasEnvModeOption = requestedEnvMode !== undefined;
+      const hasStartFromOriginOption = requestedStartFromOrigin !== undefined;
+      const hasBulkOption = options?.bulk !== undefined;
+      // Always written, never merged: a plain "new thread" is the way back out
+      // of bulk mode, which matters in projects where the composer's bulk
+      // toggle is not available (it lives in the git context strip).
+      const bulkContext = { bulk: options?.bulk ?? false };
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
@@ -210,7 +233,8 @@ export function useNewThreadHandler() {
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromOriginOption;
+            hasStartFromOriginOption ||
+            hasBulkOption;
           // Resurrecting an empty stored draft must not resurrect its stale
           // context: explicit workspace options win outright; otherwise the
           // env context resets to the configured defaults so drafts seeded
@@ -222,7 +246,7 @@ export function useNewThreadHandler() {
           // below and does not follow this guard.
           let workspaceContext: NewThreadWorkspaceOptions | null = null;
           if (hasExplicitWorkspaceOption) {
-            workspaceContext = pickExplicitWorkspaceOptions(options);
+            workspaceContext = { ...pickExplicitWorkspaceOptions(options), ...bulkContext };
           } else if (!isDraftAlreadyOpen) {
             const defaultEnvMode = await resolveDefaultEnvMode();
             if (routeChangedSinceRequest()) {
@@ -260,6 +284,8 @@ export function useNewThreadHandler() {
                 envMode: defaultEnvMode,
                 newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,
               }),
+              // A plain "new thread" on a stale bulk draft is a normal thread again.
+              bulk: false,
             };
           }
           if (workspaceContext) {
@@ -290,6 +316,10 @@ export function useNewThreadHandler() {
                 replaceOptions: true,
               });
             }
+          } else if (reusableStoredDraftThread) {
+            // A draft the user already typed into keeps its content; only the
+            // bulk flag follows the caller's intent.
+            setDraftThreadContext(reusableStoredDraftThread.draftId, bulkContext);
           }
           // The workspace context must also ride along here: when projectRef
           // targets a different physical member of the logical project,
@@ -342,9 +372,13 @@ export function useNewThreadHandler() {
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromOriginOption
+          hasStartFromOriginOption ||
+          hasBulkOption
         ) {
-          setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
+          setDraftThreadContext(currentRouteTarget.draftId, {
+            ...pickExplicitWorkspaceOptions(options),
+            ...bulkContext,
+          });
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
           threadId: latestActiveDraftThread.threadId,
@@ -352,6 +386,7 @@ export function useNewThreadHandler() {
           runtimeMode: latestActiveDraftThread.runtimeMode,
           interactionMode: latestActiveDraftThread.interactionMode,
           ...pickExplicitWorkspaceOptions(options),
+          ...bulkContext,
         });
         return Promise.resolve({
           draftId: currentRouteTarget.draftId,
@@ -409,8 +444,9 @@ export function useNewThreadHandler() {
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
+          bulk: options?.bulk ?? false,
           startFromOrigin:
-            options?.startFromOrigin ??
+            requestedStartFromOrigin ??
             resolveNewDraftStartFromOrigin({
               envMode: initialEnvMode,
               newWorktreesStartFromOrigin: primaryServerSettings.newWorktreesStartFromOrigin,

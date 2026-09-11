@@ -25,6 +25,7 @@ interface NewThreadHandler {
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      bulk?: boolean;
     },
     // The opened draft's identity, which most callers have no use for.
   ): Promise<unknown>;
@@ -98,5 +99,21 @@ export async function startNewThreadFromContext(
   }
 
   await context.handleNewThread(projectRef);
+  return true;
+}
+
+/**
+ * Same entry point as a new thread, except the draft opens in bulk mode so one
+ * prompt can fan out into a thread per placeholder value.
+ */
+export async function startBulkThreadsFromContext(
+  context: ChatThreadActionContext,
+): Promise<boolean> {
+  const projectRef = resolveThreadActionProjectRef(context);
+  if (!projectRef) {
+    return false;
+  }
+
+  await context.handleNewThread(projectRef, { bulk: true });
   return true;
 }
