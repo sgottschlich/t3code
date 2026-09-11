@@ -163,6 +163,11 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { makeProjectRoutines, type ProjectRoutines } from "./project/ProjectRoutines.ts";
+import {
+  makeWorktreeMaintenance,
+  type WorktreeMaintenance,
+} from "./project/WorktreeMaintenance.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -478,6 +483,8 @@ const makeWsRpcLayer = (
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
+  routines: ProjectRoutines,
+  worktreeMaintenance: WorktreeMaintenance,
 ) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -2617,6 +2624,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
             "rpc.aggregate": "vcs",
           }),
+        [WS_METHODS.routinesList]: () => observeRpcEffect(WS_METHODS.routinesList, routines.list()),
+        [WS_METHODS.routinesSave]: (input) =>
+          observeRpcEffect(WS_METHODS.routinesSave, routines.save(input)),
+        [WS_METHODS.routinesDelete]: (input) =>
+          observeRpcEffect(WS_METHODS.routinesDelete, routines.remove(input.id)),
+        [WS_METHODS.routinesRun]: (input) =>
+          observeRpcEffect(WS_METHODS.routinesRun, routines.run(input.id)),
+        [WS_METHODS.worktreesScan]: (input) =>
+          observeRpcEffect(WS_METHODS.worktreesScan, worktreeMaintenance.scan(input.projectId)),
+        [WS_METHODS.worktreesCleanup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.worktreesCleanup,
+            worktreeMaintenance.remove(input.projectId, input.path),
+          ),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
@@ -3023,6 +3044,9 @@ const makeWsRpcLayer = (
 
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
+    const routines = yield* makeProjectRoutines;
+    const worktreeMaintenance = yield* makeWorktreeMaintenance;
+    yield* routines.start;
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const baseServerSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const config = yield* ServerConfig.ServerConfig;
@@ -3084,6 +3108,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               clientOrigin,
               clientAnalyticsProps,
               previewAutomationBroker,
+              routines,
+              worktreeMaintenance,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),

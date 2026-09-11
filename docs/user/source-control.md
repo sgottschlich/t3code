@@ -116,6 +116,25 @@ review is terminal. An open or unsynced link keeps it active.
 Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
 out from the matching organization and repository.
 
+## Worktree storage and cleanup
+
+To put new worktrees on another drive without moving settings or conversations, start the server
+with `--worktrees-dir D:\T3Worktrees`, or set `T3CODE_WORKTREES_DIR` before starting it. The flag
+takes precedence over the environment variable. The path must be absolute and belongs to the
+machine running the server. Without either setting, worktrees remain under `<T3 home>/worktrees`.
+Changing the setting does not move existing worktrees. Worktrees in the original default directory
+remain usable.
+
+In web or desktop, open **Settings → General → Routines & worktree cleanup**, select a project,
+and find unused worktrees. Review the paths, select candidates, then delete the selected directories.
+Only Git-registered worktrees under the configured or original default directory are considered.
+Any non-deleted thread, including an archived thread, protects its worktree. Locked or detached
+worktrees and worktrees with uncommitted changes cannot be deleted here. Git failures are reported;
+cleanup never forces deletion. Branches are retained.
+
+The scan also lists threads whose worktree directory is missing. These threads are not deleted.
+Unregistered directories are not automatically removed, and there is no age-based background deletion.
+
 ## GitHub stacks
 
 The Pull Requests page shows each PR's position in its GitHub stack. Open the stack badge in a

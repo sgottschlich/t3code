@@ -1,7 +1,14 @@
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, TrimmedNonEmptyString, ProjectId } from "./baseSchemas.ts";
+import {
+  ProjectMaintenanceError,
+  ProjectRoutine,
+  ProjectRoutineInput,
+  WorktreeCleanupScan,
+  WorktreeCleanupRemoveInput,
+} from "./projectMaintenance.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -253,6 +260,12 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  routinesList: "routines.list",
+  routinesSave: "routines.save",
+  routinesDelete: "routines.delete",
+  routinesRun: "routines.run",
+  worktreesScan: "worktrees.scan",
+  worktreesCleanup: "worktrees.cleanup",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1277,6 +1290,34 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  Rpc.make(WS_METHODS.routinesList, {
+    payload: Schema.Struct({}),
+    success: Schema.Array(ProjectRoutine),
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.routinesSave, {
+    payload: ProjectRoutineInput,
+    success: ProjectRoutine,
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.routinesDelete, {
+    payload: Schema.Struct({ id: TrimmedNonEmptyString }),
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.routinesRun, {
+    payload: Schema.Struct({ id: TrimmedNonEmptyString }),
+    success: ProjectRoutine,
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.worktreesScan, {
+    payload: Schema.Struct({ projectId: ProjectId }),
+    success: WorktreeCleanupScan,
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.worktreesCleanup, {
+    payload: WorktreeCleanupRemoveInput,
+    error: Schema.Union([ProjectMaintenanceError, EnvironmentAuthorizationError]),
+  }),
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
