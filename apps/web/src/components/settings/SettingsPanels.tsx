@@ -1,4 +1,5 @@
 import { Spinner } from "~/components/ui/spinner";
+import { ProjectMaintenanceButton } from "./ProjectMaintenanceDialog";
 import { ArchiveIcon, ArchiveX, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
@@ -2133,6 +2134,7 @@ export function GeneralSettingsPanel() {
     <SettingsPageContainer>
       <SharedSettingsMismatchAlert />
       <SettingsSection id="organization" title="Organization">
+        <ProjectMaintenanceButton />
         <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."

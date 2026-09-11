@@ -68,6 +68,16 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
  */
 export const SETTINGS_SEARCH_ITEMS = [
   {
+    id: "project-maintenance",
+    title: "Project routines and worktree cleanup",
+    to: "/settings/general",
+    targetId: "organization",
+    primaryOnly: true,
+    searchTerms: [
+      "automation schedule recurring routines unused orphaned worktrees cleanup delete",
+    ],
+  },
+  {
     id: "project-defaults",
     title: "Project defaults and overrides",
     to: "/settings/projects",
