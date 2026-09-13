@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
+  KanbanIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -30,6 +31,7 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useBoardAttentionCount } from "../board/useBoardAttentionCount";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarProviderUsage } from "./SidebarProviderUsage";
@@ -110,26 +112,43 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
 function SidebarUtilityItem({
   icon,
   label,
+  count,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  /** A static count beside the icon; zero hides it. */
+  count?: number;
   onClick: () => void;
 }) {
+  const ariaLabel = count ? `${label} (${count})` : label;
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
+            <SidebarMenuButton aria-label={ariaLabel} onClick={onClick} size="icon">
               {icon}
+              {count ? (
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground tabular-nums"
+                >
+                  {count > 99 ? "99+" : count}
+                </span>
+              ) : null}
             </SidebarMenuButton>
           }
         />
-        <TooltipPopup side="top">{label}</TooltipPopup>
+        <TooltipPopup side="top">{ariaLabel}</TooltipPopup>
       </Tooltip>
     </SidebarMenuItem>
   );
+}
+
+function SidebarBoardItem({ onClick }: { onClick: () => void }) {
+  const count = useBoardAttentionCount();
+  return <SidebarUtilityItem icon={<KanbanIcon />} label="Board" count={count} onClick={onClick} />;
 }
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
@@ -146,7 +165,9 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             ? "usage"
             : location.pathname === "/pull-requests"
               ? "pull-requests"
-              : null,
+              : location.pathname === "/board"
+                ? "board"
+                : null,
   });
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
@@ -165,6 +186,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       to: "/pull-requests",
       search: readPullRequestListPreferences(),
     });
+  }, [closeMobileSidebar, navigate]);
+  const handleBoardClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/board", search: {} });
   }, [closeMobileSidebar, navigate]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
@@ -203,6 +228,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
+          <SidebarBoardItem onClick={handleBoardClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<GitPullRequestIcon />}

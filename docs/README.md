@@ -5,6 +5,7 @@
 - [Install T3 Code](./user/install.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
+- [Board](./user/board.md)
 - [Permission modes](./user/permission-modes.md)
 - [Bulk threads](./user/bulk-threads.md)
 - [Terminal history](./user/terminal.md)
