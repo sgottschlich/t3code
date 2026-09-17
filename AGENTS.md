@@ -189,7 +189,6 @@ Follow this protocol:
 
 Project-scoped facts mirror to `.prometheus/memories/*.md` (git-versioned,
 human-editable); treat those files as the source of truth.
-
 <!-- prometheus-memory:end -->
 
 <!-- prom-saver:start -->
@@ -209,5 +208,4 @@ Lead with the answer or the action; cut preamble, farewell pleasantries and play
 - **The closing summary when you hand a task back.** Being lean applies to narrating work in progress, never to reporting it finished. When you finish a task — or stop and return control for any reason — write a complete summary: what you did, what changed (files, commands, commits), what you verified and what failed, what is still open, what you would do next. This is a _report_, not a "sign-off" — a "sign-off" is a farewell pleasantry ("let me know if you need anything else") and those still go. Skipping the report saves a handful of tokens and costs the user a follow-up question against a full context window — far more expensive than the summary would have been.
 
 Correctness, safety, completeness and your own working context come FIRST; saving tokens comes second. If the two ever conflict, do not compress — cut filler, never substance.
-
 <!-- prom-saver:end -->
